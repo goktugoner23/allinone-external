@@ -1,6 +1,11 @@
 import { USDMClient } from 'binance';
 import config from '../../config';
 
+// Debug logging for config values
+console.log('REST API Debug:');
+console.log('config.binance.apiKey:', config.binance.apiKey ? `${config.binance.apiKey.substring(0, 10)}...` : 'undefined');
+console.log('config.binance.apiSecret:', config.binance.apiSecret ? `${config.binance.apiSecret.substring(0, 10)}...` : 'undefined');
+
 // Utility function to safely convert numberInString to number
 function toNumber(value: any): number {
   if (typeof value === 'number') return value;
@@ -67,10 +72,17 @@ class BinanceRestAPI {
   private client: USDMClient;
 
   constructor() {
+    console.log('BinanceRestAPI constructor called');
+    console.log('Creating USDMClient with:');
+    console.log('api_key:', config.binance.apiKey ? `${config.binance.apiKey.substring(0, 10)}...` : 'undefined');
+    console.log('api_secret:', config.binance.apiSecret ? `${config.binance.apiSecret.substring(0, 10)}...` : 'undefined');
+    
     this.client = new USDMClient({
       api_key: config.binance.apiKey,
       api_secret: config.binance.apiSecret,
     });
+    
+    console.log('USDMClient created successfully');
   }
 
   // Get account information
