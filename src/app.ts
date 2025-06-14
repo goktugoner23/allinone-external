@@ -26,6 +26,24 @@ app.get('/health', (req: Request, res: Response) => {
   });
 });
 
+// Debug endpoint to check outbound IP
+app.get('/debug/ip', async (req, res) => {
+  try {
+    const response = await fetch('https://httpbin.org/ip');
+    const data = await response.json() as { origin: string };
+    res.json({
+      outboundIP: data.origin,
+      headers: req.headers,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    res.json({
+      error: 'Failed to get IP',
+      message: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
 // Binance API Routes
 const binanceService = serviceManager.getBinanceService();
 
