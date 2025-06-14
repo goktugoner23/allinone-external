@@ -17,31 +17,13 @@ app.use(cors(config.cors));
 app.use(express.json());
 
 // Health check endpoint
-app.get('/health', (req: Request, res: Response) => {
-  const status = serviceManager.getStatus();
+app.get('/health', (req, res) => {
+  const status = binanceService.getConnectionStatus();
   res.json({
     status: 'ok',
     timestamp: new Date().toISOString(),
     services: status
   });
-});
-
-// Debug endpoint to check outbound IP
-app.get('/debug/ip', async (req, res) => {
-  try {
-    const response = await fetch('https://httpbin.org/ip');
-    const data = await response.json() as { origin: string };
-    res.json({
-      outboundIP: data.origin,
-      headers: req.headers,
-      timestamp: new Date().toISOString()
-    });
-  } catch (error) {
-    res.json({
-      error: 'Failed to get IP',
-      message: error instanceof Error ? error.message : 'Unknown error'
-    });
-  }
 });
 
 // Binance API Routes
