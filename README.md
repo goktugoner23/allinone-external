@@ -754,18 +754,190 @@ CORS_ORIGIN=*
 
 ## Android Integration
 
+Your external Binance service is deployed at: **`https://allinone-app-5t9md.ondigitalocean.app`**
+
 ### Dependencies
-Add to your `build.gradle`:
+Add to your `build.gradle` (Module: app):
 ```kotlin
-implementation 'com.squareup.retrofit2:retrofit:2.9.0'
-implementation 'com.squareup.retrofit2:converter-gson:2.9.0'
-implementation 'com.squareup.okhttp3:logging-interceptor:4.11.0'
-implementation 'org.java-websocket:Java-WebSocket:1.5.3'
+dependencies {
+    // Retrofit for REST API calls
+    implementation 'com.squareup.retrofit2:retrofit:2.9.0'
+    implementation 'com.squareup.retrofit2:converter-gson:2.9.0'
+    implementation 'com.squareup.okhttp3:logging-interceptor:4.11.0'
+    
+    // WebSocket for real-time updates
+    implementation 'org.java-websocket:Java-WebSocket:1.5.3'
+    
+    // Coroutines for async operations
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3'
+    
+    // Lifecycle components
+    implementation 'androidx.lifecycle:lifecycle-viewmodel-ktx:2.7.0'
+    implementation 'androidx.lifecycle:lifecycle-livedata-ktx:2.7.0'
+}
 ```
 
-### API Service
+### Data Classes
+Create these data classes for API responses:
+
 ```kotlin
+// Health Response
+data class HealthResponse(
+    val status: String,
+    val timestamp: String,
+    val services: ServiceStatus
+)
+
+data class ServiceStatus(
+    val isInitialized: Boolean,
+    val binance: BinanceStatus
+)
+
+data class BinanceStatus(
+    val isConnected: Boolean,
+    val clientCount: Int,
+    val isInitialized: Boolean
+)
+
+// Account Response
+data class AccountResponse(
+    val success: Boolean,
+    val data: AccountData? = null,
+    val error: String? = null
+)
+
+data class AccountData(
+    val totalWalletBalance: Double,
+    val totalUnrealizedProfit: Double,
+    val totalMarginBalance: Double,
+    val totalPositionInitialMargin: Double,
+    val totalOpenOrderInitialMargin: Double,
+    val maxWithdrawAmount: Double,
+    val assets: List<AssetData>
+)
+
+data class AssetData(
+    val asset: String,
+    val walletBalance: Double,
+    val unrealizedProfit: Double,
+    val marginBalance: Double,
+    val maintMargin: Double,
+    val initialMargin: Double,
+    val positionInitialMargin: Double,
+    val openOrderInitialMargin: Double,
+    val maxWithdrawAmount: Double
+)
+
+// Positions Response
+data class PositionsResponse(
+    val success: Boolean,
+    val data: List<PositionData>? = null,
+    val error: String? = null
+)
+
+data class PositionData(
+    val symbol: String,
+    val positionAmount: Double,
+    val entryPrice: Double,
+    val markPrice: Double,
+    val unrealizedProfit: Double,
+    val percentage: Double,
+    val positionSide: String,
+    val leverage: Double,
+    val maxNotionalValue: Double,
+    val marginType: String,
+    val isolatedMargin: Double,
+    val isAutoAddMargin: Boolean
+)
+
+// Orders Response
+data class OrdersResponse(
+    val success: Boolean,
+    val data: List<OrderData>? = null,
+    val error: String? = null
+)
+
+data class OrderData(
+    val orderId: String,
+    val symbol: String,
+    val status: String,
+    val clientOrderId: String,
+    val price: Double,
+    val avgPrice: Double,
+    val origQty: Double,
+    val executedQty: Double,
+    val cumQuote: Double,
+    val timeInForce: String,
+    val type: String,
+    val reduceOnly: Boolean,
+    val closePosition: Boolean,
+    val side: String,
+    val positionSide: String,
+    val stopPrice: Double,
+    val workingType: String,
+    val priceProtect: Boolean,
+    val origType: String,
+    val time: Long,
+    val updateTime: Long
+)
+
+// Order Request
+data class OrderRequest(
+    val symbol: String,
+    val side: String, // "BUY" or "SELL"
+    val type: String, // "LIMIT", "MARKET", etc.
+    val quantity: Double,
+    val price: Double? = null,
+    val stopPrice: Double? = null,
+    val timeInForce: String? = "GTC",
+    val reduceOnly: Boolean? = false,
+    val closePosition: Boolean? = false,
+    val positionSide: String? = "BOTH"
+)
+
+// Balance Response
+data class BalanceResponse(
+    val success: Boolean,
+    val data: List<AssetData>? = null,
+    val error: String? = null
+)
+
+// Price Response
+data class PriceResponse(
+    val success: Boolean,
+    val data: PriceData? = null,
+    val error: String? = null
+)
+
+data class PriceData(
+    val symbol: String,
+    val price: Double
+)
+
+// All Prices Response
+data class AllPricesResponse(
+    val success: Boolean,
+    val data: List<PriceData>? = null,
+    val error: String? = null
+)
+
+// Generic API Response
+data class ApiResponse(
+    val success: Boolean,
+    val data: Any? = null,
+    val error: String? = null
+)
+```
+
+### API Service Interface
+Create the Retrofit service interface:
+
+```kotlin
+import retrofit2.Response
+import retrofit2.http.*
+
 interface BinanceExternalService {
+    
     @GET("health")
     suspend fun getHealth(): Response<HealthResponse>
     
@@ -775,85 +947,397 @@ interface BinanceExternalService {
     @GET("api/binance/positions")
     suspend fun getPositions(): Response<PositionsResponse>
     
-    // ... other endpoints
+    @GET("api/binance/orders")
+    suspend fun getOpenOrders(@Query("symbol") symbol: String? = null): Response<OrdersResponse>
+    
+    @POST("api/binance/order")
+    suspend fun placeOrder(@Body orderRequest: OrderRequest): Response<ApiResponse>
+    
+    @DELETE("api/binance/order/{symbol}/{orderId}")
+    suspend fun cancelOrder(
+        @Path("symbol") symbol: String,
+        @Path("orderId") orderId: String
+    ): Response<ApiResponse>
+    
+    @DELETE("api/binance/orders/{symbol}")
+    suspend fun cancelAllOrders(@Path("symbol") symbol: String): Response<ApiResponse>
+    
+    @POST("api/binance/tpsl")
+    suspend fun setTPSL(@Body tpslRequest: Map<String, Any>): Response<ApiResponse>
+    
+    @GET("api/binance/balance")
+    suspend fun getBalance(@Query("asset") asset: String? = "USDT"): Response<BalanceResponse>
+    
+    @GET("api/binance/price/{symbol}")
+    suspend fun getPrice(@Path("symbol") symbol: String): Response<PriceResponse>
+    
+    @GET("api/binance/prices")
+    suspend fun getAllPrices(): Response<AllPricesResponse>
 }
 ```
 
-### WebSocket Client
+### Retrofit Client Setup
+Create a singleton Retrofit client:
+
 ```kotlin
-class BinanceWebSocketClient(private val serverUrl: String) {
-    private var webSocket: WebSocket? = null
+import okhttp3.OkHttpClient
+import okhttp3.logging.HttpLoggingInterceptor
+import retrofit2.Retrofit
+import retrofit2.converter.gson.GsonConverterFactory
+import java.util.concurrent.TimeUnit
+
+object BinanceApiClient {
+    private const val BASE_URL = "https://allinone-app-5t9md.ondigitalocean.app/"
     
-    fun connect() {
-        val client = OkHttpClient()
-        val request = Request.Builder()
-            .url("$serverUrl/ws")
-            .build()
-        
-        webSocket = client.newWebSocket(request, object : WebSocketListener() {
-            override fun onMessage(webSocket: WebSocket, text: String) {
-                // Handle real-time updates
-                handleMessage(text)
+    private val loggingInterceptor = HttpLoggingInterceptor().apply {
+        level = HttpLoggingInterceptor.Level.BODY
+    }
+    
+    private val okHttpClient = OkHttpClient.Builder()
+        .addInterceptor(loggingInterceptor)
+        .connectTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
+        .writeTimeout(30, TimeUnit.SECONDS)
+        .build()
+    
+    private val retrofit = Retrofit.Builder()
+        .baseUrl(BASE_URL)
+        .client(okHttpClient)
+        .addConverterFactory(GsonConverterFactory.create())
+        .build()
+    
+    val service: BinanceExternalService = retrofit.create(BinanceExternalService::class.java)
+}
+```
+
+### Repository Pattern
+Create a repository to handle API calls:
+
+```kotlin
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+
+class BinanceRepository {
+    private val apiService = BinanceApiClient.service
+    
+    suspend fun getHealth(): Result<HealthResponse> = withContext(Dispatchers.IO) {
+        try {
+            val response = apiService.getHealth()
+            if (response.isSuccessful && response.body() != null) {
+                Result.success(response.body()!!)
+            } else {
+                Result.failure(Exception("Health check failed: ${response.message()}"))
             }
-        })
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+    
+    suspend fun getAccount(): Result<AccountResponse> = withContext(Dispatchers.IO) {
+        try {
+            val response = apiService.getAccount()
+            if (response.isSuccessful && response.body() != null) {
+                Result.success(response.body()!!)
+            } else {
+                Result.failure(Exception("Account fetch failed: ${response.message()}"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+    
+    suspend fun getPositions(): Result<PositionsResponse> = withContext(Dispatchers.IO) {
+        try {
+            val response = apiService.getPositions()
+            if (response.isSuccessful && response.body() != null) {
+                Result.success(response.body()!!)
+            } else {
+                Result.failure(Exception("Positions fetch failed: ${response.message()}"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+    
+    suspend fun placeOrder(orderRequest: OrderRequest): Result<ApiResponse> = withContext(Dispatchers.IO) {
+        try {
+            val response = apiService.placeOrder(orderRequest)
+            if (response.isSuccessful && response.body() != null) {
+                Result.success(response.body()!!)
+            } else {
+                Result.failure(Exception("Order placement failed: ${response.message()}"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+    
+    suspend fun getBalance(asset: String = "USDT"): Result<BalanceResponse> = withContext(Dispatchers.IO) {
+        try {
+            val response = apiService.getBalance(asset)
+            if (response.isSuccessful && response.body() != null) {
+                Result.success(response.body()!!)
+            } else {
+                Result.failure(Exception("Balance fetch failed: ${response.message()}"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+    
+    suspend fun getPrice(symbol: String): Result<PriceResponse> = withContext(Dispatchers.IO) {
+        try {
+            val response = apiService.getPrice(symbol)
+            if (response.isSuccessful && response.body() != null) {
+                Result.success(response.body()!!)
+            } else {
+                Result.failure(Exception("Price fetch failed: ${response.message()}"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
     }
 }
 ```
 
-## Architecture
+### WebSocket Client
+Create a WebSocket client for real-time updates:
 
+```kotlin
+import org.java_websocket.client.WebSocketClient
+import org.java_websocket.handshake.ServerHandshake
+import java.net.URI
+import com.google.gson.Gson
+import com.google.gson.JsonObject
+
+class BinanceWebSocketClient(
+    private val onMessage: (String, JsonObject) -> Unit,
+    private val onConnectionChange: (Boolean) -> Unit
+) {
+    private var webSocket: WebSocketClient? = null
+    private val gson = Gson()
+    private var isConnected = false
+    
+    fun connect() {
+        try {
+            val uri = URI("wss://allinone-app-5t9md.ondigitalocean.app/ws")
+            
+            webSocket = object : WebSocketClient(uri) {
+                override fun onOpen(handshake: ServerHandshake?) {
+                    isConnected = true
+                    onConnectionChange(true)
+                    println("WebSocket connected")
+                }
+                
+                override fun onMessage(message: String?) {
+                    message?.let {
+                        try {
+                            val jsonObject = gson.fromJson(it, JsonObject::class.java)
+                            val type = jsonObject.get("type")?.asString ?: "unknown"
+                            onMessage(type, jsonObject)
+                        } catch (e: Exception) {
+                            println("Error parsing WebSocket message: ${e.message}")
+                        }
+                    }
+                }
+                
+                override fun onClose(code: Int, reason: String?, remote: Boolean) {
+                    isConnected = false
+                    onConnectionChange(false)
+                    println("WebSocket closed: $reason")
+                }
+                
+                override fun onError(ex: Exception?) {
+                    isConnected = false
+                    onConnectionChange(false)
+                    println("WebSocket error: ${ex?.message}")
+                }
+            }
+            
+            webSocket?.connect()
+            
+        } catch (e: Exception) {
+            println("Failed to connect WebSocket: ${e.message}")
+        }
+    }
+    
+    fun disconnect() {
+        webSocket?.close()
+        isConnected = false
+    }
+    
+    fun isConnected(): Boolean = isConnected
+}
 ```
-┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
-│   Android App   │◄──►│  External Service │◄──►│  Binance API    │
-│                 │    │  (DigitalOcean)   │    │                 │
-│ - UI/UX         │    │ - REST API        │    │ - Futures API   │
-│ - Local Logic   │    │ - WebSocket       │    │ - WebSocket     │
-│ - API Calls     │    │ - Static IP       │    │ - IP Whitelist  │
-└─────────────────┘    └──────────────────┘    └─────────────────┘
+
+### Usage Example in Activity/Fragment
+Here's how to use it in your Activity or Fragment:
+
+```kotlin
+class MainActivity : AppCompatActivity() {
+    private lateinit var repository: BinanceRepository
+    private lateinit var webSocketClient: BinanceWebSocketClient
+    
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_main)
+        
+        repository = BinanceRepository()
+        
+        // Initialize WebSocket
+        webSocketClient = BinanceWebSocketClient(
+            onMessage = { type, data ->
+                runOnUiThread {
+                    handleWebSocketMessage(type, data)
+                }
+            },
+            onConnectionChange = { connected ->
+                runOnUiThread {
+                    updateConnectionStatus(connected)
+                }
+            }
+        )
+        
+        // Connect WebSocket
+        webSocketClient.connect()
+        
+        // Example API calls
+        fetchAccountData()
+        fetchPositions()
+    }
+    
+    private fun fetchAccountData() {
+        lifecycleScope.launch {
+            repository.getAccount().fold(
+                onSuccess = { response ->
+                    if (response.success && response.data != null) {
+                        // Update UI with account data
+                        updateAccountUI(response.data)
+                    } else {
+                        // Handle error
+                        showError(response.error ?: "Unknown error")
+                    }
+                },
+                onFailure = { exception ->
+                    showError(exception.message ?: "Network error")
+                }
+            )
+        }
+    }
+    
+    private fun fetchPositions() {
+        lifecycleScope.launch {
+            repository.getPositions().fold(
+                onSuccess = { response ->
+                    if (response.success && response.data != null) {
+                        // Update UI with positions
+                        updatePositionsUI(response.data)
+                    }
+                },
+                onFailure = { exception ->
+                    showError(exception.message ?: "Network error")
+                }
+            )
+        }
+    }
+    
+    private fun placeMarketOrder(symbol: String, side: String, quantity: Double) {
+        lifecycleScope.launch {
+            val orderRequest = OrderRequest(
+                symbol = symbol,
+                side = side,
+                type = "MARKET",
+                quantity = quantity
+            )
+            
+            repository.placeOrder(orderRequest).fold(
+                onSuccess = { response ->
+                    if (response.success) {
+                        showSuccess("Order placed successfully")
+                    } else {
+                        showError(response.error ?: "Order failed")
+                    }
+                },
+                onFailure = { exception ->
+                    showError(exception.message ?: "Order failed")
+                }
+            )
+        }
+    }
+    
+    private fun handleWebSocketMessage(type: String, data: JsonObject) {
+        when (type) {
+            "positions_update" -> {
+                // Handle position updates
+                println("Position update: $data")
+            }
+            "order_update" -> {
+                // Handle order updates
+                println("Order update: $data")
+            }
+            "balance_update" -> {
+                // Handle balance updates
+                println("Balance update: $data")
+            }
+            "connection" -> {
+                // Handle connection status
+                val status = data.get("status")?.asString
+                println("Connection status: $status")
+            }
+        }
+    }
+    
+    private fun updateConnectionStatus(connected: Boolean) {
+        // Update UI connection indicator
+    }
+    
+    private fun updateAccountUI(accountData: AccountData) {
+        // Update your UI with account data
+    }
+    
+    private fun updatePositionsUI(positions: List<PositionData>) {
+        // Update your UI with positions
+    }
+    
+    private fun showError(message: String) {
+        // Show error message to user
+    }
+    
+    private fun showSuccess(message: String) {
+        // Show success message to user
+    }
+    
+    override fun onDestroy() {
+        super.onDestroy()
+        webSocketClient.disconnect()
+    }
+}
 ```
 
-## Security
+### Network Security Config
+Add to your `res/xml/network_security_config.xml`:
 
-- API keys are stored as environment variables
-- CORS configured for your Android app domain
-- Rate limiting handled by Binance API
-- Error messages sanitized before sending to client
-
-## Monitoring
-
-### PM2 Commands (DigitalOcean)
-```bash
-pm2 status                    # Check application status
-pm2 logs allinone-external   # View logs
-pm2 restart allinone-external # Restart application
-pm2 monit                    # Monitor resources
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">allinone-app-5t9md.ondigitalocean.app</domain>
+    </domain-config>
+</network-security-config>
 ```
 
-### Health Monitoring
-The `/health` endpoint provides:
-- Service status
-- Binance connection status
-- WebSocket client count
-- Uptime information
-
-## Troubleshooting
-
-### Common Issues
-
-1. **IP Whitelist Error**: Ensure your server's IP is added to Binance API whitelist
-2. **Environment Variables**: Check that all required env vars are set
-3. **WebSocket Connection**: Verify firewall allows WebSocket connections
-4. **API Rate Limits**: Monitor Binance API usage limits
-
-### Logs
-```bash
-# DigitalOcean
-pm2 logs allinone-external
-
-# Heroku
-heroku logs --tail --app your-app-name
+And in your `AndroidManifest.xml`:
+```xml
+<application
+    android:networkSecurityConfig="@xml/network_security_config"
+    ... >
 ```
 
-## License
+### Permissions
+Add to your `AndroidManifest.xml`:
+```xml
+<uses-permission android:name="android.permission.INTERNET" />
+<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+```
 
-MIT License - see LICENSE file for details.
+This complete integration guide provides everything you need to connect your Android app to the external Binance service running on DigitalOcean!
