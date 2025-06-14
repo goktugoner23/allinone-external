@@ -658,3 +658,202 @@ The service includes comprehensive error handling:
 - Detailed logging for debugging
 - Connection status tracking
 - Service status reporting
+
+# Binance Futures External Service
+
+A Node.js TypeScript service that provides Binance Futures API functionality with real-time WebSocket support for Android applications. This service handles IP whitelisting requirements by running on a server with a static IP address.
+
+## Features
+
+- **REST API Integration**: Complete Binance Futures REST API wrapper
+- **Real-time WebSocket**: Live position and order updates
+- **Account Management**: Balance, positions, and order management
+- **Trading Operations**: Place, cancel, and modify orders with TP/SL support
+- **Error Handling**: Comprehensive error handling and logging
+- **CORS Support**: Configured for cross-origin requests from Android apps
+
+## API Endpoints
+
+### Health Check
+- `GET /health` - Service health status
+
+### Binance Futures API
+- `GET /api/binance/account` - Get account information
+- `GET /api/binance/positions` - Get current positions
+- `GET /api/binance/orders` - Get open orders
+- `POST /api/binance/order` - Place new order
+- `DELETE /api/binance/order/:symbol/:orderId` - Cancel specific order
+- `DELETE /api/binance/orders/:symbol` - Cancel all orders for symbol
+- `POST /api/binance/tpsl` - Set take profit/stop loss
+- `GET /api/binance/balance` - Get account balance
+- `GET /api/binance/price/:symbol` - Get symbol price
+- `GET /api/binance/prices` - Get all symbol prices
+
+### WebSocket
+- `WS /ws` - Real-time updates for positions, orders, and account changes
+
+## Deployment
+
+### DigitalOcean (Recommended)
+DigitalOcean provides static IP addresses, solving Binance's IP whitelisting requirements.
+
+See [deploy-digitalocean.md](deploy-digitalocean.md) for complete deployment guide.
+
+Quick setup:
+1. Create Ubuntu 22.04 droplet
+2. Note the static IP address
+3. Add IP to Binance API whitelist
+4. Follow deployment guide
+
+### Heroku (Not Recommended)
+Heroku uses dynamic IPs that change frequently, causing issues with Binance IP whitelisting.
+
+If you must use Heroku:
+```bash
+# Deploy to Heroku
+heroku create your-app-name
+heroku config:set BINANCE_API_KEY=your_key
+heroku config:set BINANCE_API_SECRET=your_secret
+heroku config:set NODE_ENV=production
+git push heroku main
+```
+
+**Note**: You'll need to frequently update your Binance IP whitelist as Heroku IPs change.
+
+## Local Development
+
+1. **Clone and install**:
+```bash
+git clone https://github.com/your-username/allinone-external.git
+cd allinone-external
+npm install
+```
+
+2. **Environment setup**:
+```bash
+cp .env.example .env
+# Edit .env with your Binance API credentials
+```
+
+3. **Development**:
+```bash
+npm run dev  # Start with hot reload
+npm run build  # Build for production
+npm start  # Start production build
+```
+
+## Environment Variables
+
+```env
+NODE_ENV=production
+BINANCE_API_KEY=your_binance_api_key
+BINANCE_API_SECRET=your_binance_api_secret
+PORT=3000
+CORS_ORIGIN=*
+```
+
+## Android Integration
+
+### Dependencies
+Add to your `build.gradle`:
+```kotlin
+implementation 'com.squareup.retrofit2:retrofit:2.9.0'
+implementation 'com.squareup.retrofit2:converter-gson:2.9.0'
+implementation 'com.squareup.okhttp3:logging-interceptor:4.11.0'
+implementation 'org.java-websocket:Java-WebSocket:1.5.3'
+```
+
+### API Service
+```kotlin
+interface BinanceExternalService {
+    @GET("health")
+    suspend fun getHealth(): Response<HealthResponse>
+    
+    @GET("api/binance/account")
+    suspend fun getAccount(): Response<AccountResponse>
+    
+    @GET("api/binance/positions")
+    suspend fun getPositions(): Response<PositionsResponse>
+    
+    // ... other endpoints
+}
+```
+
+### WebSocket Client
+```kotlin
+class BinanceWebSocketClient(private val serverUrl: String) {
+    private var webSocket: WebSocket? = null
+    
+    fun connect() {
+        val client = OkHttpClient()
+        val request = Request.Builder()
+            .url("$serverUrl/ws")
+            .build()
+        
+        webSocket = client.newWebSocket(request, object : WebSocketListener() {
+            override fun onMessage(webSocket: WebSocket, text: String) {
+                // Handle real-time updates
+                handleMessage(text)
+            }
+        })
+    }
+}
+```
+
+## Architecture
+
+```
+┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
+│   Android App   │◄──►│  External Service │◄──►│  Binance API    │
+│                 │    │  (DigitalOcean)   │    │                 │
+│ - UI/UX         │    │ - REST API        │    │ - Futures API   │
+│ - Local Logic   │    │ - WebSocket       │    │ - WebSocket     │
+│ - API Calls     │    │ - Static IP       │    │ - IP Whitelist  │
+└─────────────────┘    └──────────────────┘    └─────────────────┘
+```
+
+## Security
+
+- API keys are stored as environment variables
+- CORS configured for your Android app domain
+- Rate limiting handled by Binance API
+- Error messages sanitized before sending to client
+
+## Monitoring
+
+### PM2 Commands (DigitalOcean)
+```bash
+pm2 status                    # Check application status
+pm2 logs allinone-external   # View logs
+pm2 restart allinone-external # Restart application
+pm2 monit                    # Monitor resources
+```
+
+### Health Monitoring
+The `/health` endpoint provides:
+- Service status
+- Binance connection status
+- WebSocket client count
+- Uptime information
+
+## Troubleshooting
+
+### Common Issues
+
+1. **IP Whitelist Error**: Ensure your server's IP is added to Binance API whitelist
+2. **Environment Variables**: Check that all required env vars are set
+3. **WebSocket Connection**: Verify firewall allows WebSocket connections
+4. **API Rate Limits**: Monitor Binance API usage limits
+
+### Logs
+```bash
+# DigitalOcean
+pm2 logs allinone-external
+
+# Heroku
+heroku logs --tail --app your-app-name
+```
+
+## License
+
+MIT License - see LICENSE file for details.
