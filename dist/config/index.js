@@ -1,7 +1,10 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 const dotenv_1 = require("dotenv");
-(0, dotenv_1.config)();
+// Only load .env file in development
+if (process.env.NODE_ENV !== 'production') {
+    (0, dotenv_1.config)();
+}
 const config = {
     port: parseInt(process.env.PORT || '3000', 10),
     binance: {

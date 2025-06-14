@@ -1,6 +1,9 @@
 import { config as dotenvConfig } from 'dotenv';
 
-dotenvConfig();
+// Only load .env file in development
+if (process.env.NODE_ENV !== 'production') {
+  dotenvConfig();
+}
 
 export interface Config {
   port: number;
