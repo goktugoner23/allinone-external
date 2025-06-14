@@ -1,11 +1,6 @@
 import { USDMClient } from 'binance';
 import config from '../../config';
 
-// Debug logging for config values
-console.log('REST API Debug:');
-console.log('config.binance.apiKey:', config.binance.apiKey ? `${config.binance.apiKey.substring(0, 10)}...` : 'undefined');
-console.log('config.binance.apiSecret:', config.binance.apiSecret ? `${config.binance.apiSecret.substring(0, 10)}...` : 'undefined');
-
 // Utility function to safely convert numberInString to number
 function toNumber(value: any): number {
   if (typeof value === 'number') return value;
@@ -72,24 +67,16 @@ class BinanceRestAPI {
   private client: USDMClient;
 
   constructor() {
-    console.log('BinanceRestAPI constructor called');
-    console.log('Creating USDMClient with:');
-    console.log('api_key:', config.binance.apiKey ? `${config.binance.apiKey.substring(0, 10)}...` : 'undefined');
-    console.log('api_secret:', config.binance.apiSecret ? `${config.binance.apiSecret.substring(0, 10)}...` : 'undefined');
-    
     this.client = new USDMClient({
       api_key: config.binance.apiKey,
       api_secret: config.binance.apiSecret,
     });
-    
-    console.log('USDMClient created successfully');
   }
 
   // Get account information
   async getAccountInfo(): Promise<ApiResponse<AccountInfo>> {
     try {
       const accountInfo = await this.client.getAccountInformation();
-      console.log('Account info response:', accountInfo);
       
       if (!accountInfo || typeof accountInfo !== 'object') {
         throw new Error('Invalid account info response');
@@ -118,7 +105,6 @@ class BinanceRestAPI {
         }
       };
     } catch (error: unknown) {
-      console.error('Error getting account info:', error);
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       return {
         success: false,
@@ -131,10 +117,8 @@ class BinanceRestAPI {
   async getPositions(): Promise<ApiResponse<Position[]>> {
     try {
       const positions = await this.client.getPositions();
-      console.log('Positions response:', positions);
       
       if (!Array.isArray(positions)) {
-        console.error('Positions response is not an array:', positions);
         return {
           success: false,
           error: 'Invalid positions response format'
@@ -163,7 +147,6 @@ class BinanceRestAPI {
         data: activePositions
       };
     } catch (error: unknown) {
-      console.error('Error getting positions:', error);
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       return {
         success: false,
@@ -217,7 +200,6 @@ class BinanceRestAPI {
         data: formattedOrders
       };
     } catch (error: unknown) {
-      console.error('Error getting open orders:', error);
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       return {
         success: false,
@@ -267,30 +249,29 @@ class BinanceRestAPI {
 
       const result = await this.client.submitNewOrder(orderParams);
 
-              return {
-          success: true,
-          data: {
-            orderId: result.orderId,
-            symbol: result.symbol,
-            status: result.status,
-            clientOrderId: result.clientOrderId,
-            price: toNumber(result.price),
-            origQty: toNumber(result.origQty),
-            executedQty: toNumber(result.executedQty),
-            cumQuote: toNumber(result.cumQuote),
-            timeInForce: result.timeInForce,
-            type: result.type,
-            reduceOnly: result.reduceOnly,
-            closePosition: result.closePosition,
-            side: result.side,
-            positionSide: result.positionSide,
-            stopPrice: toNumber(result.stopPrice),
-            workingType: result.workingType,
-            time: result.updateTime
-          }
-        };
+      return {
+        success: true,
+        data: {
+          orderId: result.orderId,
+          symbol: result.symbol,
+          status: result.status,
+          clientOrderId: result.clientOrderId,
+          price: toNumber(result.price),
+          origQty: toNumber(result.origQty),
+          executedQty: toNumber(result.executedQty),
+          cumQuote: toNumber(result.cumQuote),
+          timeInForce: result.timeInForce,
+          type: result.type,
+          reduceOnly: result.reduceOnly,
+          closePosition: result.closePosition,
+          side: result.side,
+          positionSide: result.positionSide,
+          stopPrice: toNumber(result.stopPrice),
+          workingType: result.workingType,
+          time: result.updateTime
+        }
+      };
     } catch (error: unknown) {
-      console.error('Error placing order:', error);
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       return {
         success: false,
@@ -326,7 +307,6 @@ class BinanceRestAPI {
         }
       };
     } catch (error: unknown) {
-      console.error('Error canceling order:', error);
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       return {
         success: false,
@@ -345,7 +325,6 @@ class BinanceRestAPI {
         data: result
       };
     } catch (error: unknown) {
-      console.error('Error canceling all orders:', error);
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       return {
         success: false,
@@ -396,7 +375,6 @@ class BinanceRestAPI {
         data: results
       };
     } catch (error: unknown) {
-      console.error('Error setting TP/SL:', error);
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       return {
         success: false,
@@ -433,7 +411,6 @@ class BinanceRestAPI {
         }
       };
     } catch (error: unknown) {
-      console.error('Error getting balance:', error);
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       return {
         success: false,
@@ -456,7 +433,6 @@ class BinanceRestAPI {
         }
       };
     } catch (error: unknown) {
-      console.error('Error getting price:', error);
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       return {
         success: false,
@@ -484,7 +460,6 @@ class BinanceRestAPI {
         data: formattedPrices
       };
     } catch (error: unknown) {
-      console.error('Error getting all prices:', error);
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       return {
         success: false,

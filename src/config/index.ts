@@ -5,14 +5,6 @@ if (process.env.NODE_ENV !== 'production') {
   dotenvConfig();
 }
 
-// Debug logging for production
-console.log('Environment check:');
-console.log('NODE_ENV:', process.env.NODE_ENV);
-console.log('BINANCE_API_KEY exists:', !!process.env.BINANCE_API_KEY);
-console.log('BINANCE_API_SECRET exists:', !!process.env.BINANCE_API_SECRET);
-console.log('BINANCE_API_KEY length:', process.env.BINANCE_API_KEY?.length || 0);
-console.log('BINANCE_API_SECRET length:', process.env.BINANCE_API_SECRET?.length || 0);
-
 export interface Config {
   port: number;
   binance: {
@@ -46,9 +38,5 @@ const config: Config = {
     credentials: true
   }
 };
-
-console.log('Config loaded:');
-console.log('config.binance.apiKey exists:', !!config.binance.apiKey);
-console.log('config.binance.apiSecret exists:', !!config.binance.apiSecret);
 
 export default config;

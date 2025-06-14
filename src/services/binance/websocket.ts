@@ -32,10 +32,6 @@ class BinanceWebSocketManager {
 
   async startUserDataStream(): Promise<void> {
     try {
-      console.log('WebSocket Debug:');
-      console.log('config.binance.apiKey:', config.binance.apiKey ? `${config.binance.apiKey.substring(0, 10)}...` : 'undefined');
-      console.log('config.binance.apiSecret:', config.binance.apiSecret ? `${config.binance.apiSecret.substring(0, 10)}...` : 'undefined');
-      
       // Initialize WebSocket client
       this.wsClient = new WebsocketClient({
         api_key: config.binance.apiKey,
@@ -43,8 +39,6 @@ class BinanceWebSocketManager {
         beautify: true,
       });
       
-      console.log('WebsocketClient created with credentials');
-
       // Set up event handlers
       this.wsClient.on('open', (data) => {
         console.log('Connected to Binance WebSocket:', data.wsKey);
