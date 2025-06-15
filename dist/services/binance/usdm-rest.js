@@ -156,11 +156,17 @@ class BinanceUsdMRestAPI {
                 type,
                 quantity: String(quantity),
                 timeInForce,
-                reduceOnly,
-                closePosition,
                 positionSide,
                 workingType
             };
+            // Add reduceOnly for futures orders (but not as string)
+            if (reduceOnly) {
+                orderParams.reduceOnly = 'true';
+            }
+            // Add closePosition if specified
+            if (closePosition) {
+                orderParams.closePosition = 'true';
+            }
             // Add price for limit orders
             if (type === 'LIMIT' && price) {
                 orderParams.price = String(price);
@@ -169,6 +175,7 @@ class BinanceUsdMRestAPI {
             if ((type === 'STOP' || type === 'STOP_MARKET' || type === 'TAKE_PROFIT' || type === 'TAKE_PROFIT_MARKET') && stopPrice) {
                 orderParams.stopPrice = String(stopPrice);
             }
+            console.log(`[USD-M] Placing order with params:`, orderParams);
             const result = await this.client.submitNewOrder(orderParams);
             return {
                 success: true,
@@ -194,7 +201,25 @@ class BinanceUsdMRestAPI {
             };
         }
         catch (error) {
-            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+            console.error('[USD-M] Order placement error:', error);
+            // Extract detailed error information
+            let errorMessage = 'Unknown error';
+            if (error instanceof Error) {
+                errorMessage = error.message;
+            }
+            else if (typeof error === 'object' && error !== null) {
+                // Handle Binance API error format
+                const binanceError = error;
+                if (binanceError.code && binanceError.msg) {
+                    errorMessage = `Binance Error ${binanceError.code}: ${binanceError.msg}`;
+                }
+                else if (binanceError.message) {
+                    errorMessage = binanceError.message;
+                }
+                else if (binanceError.body && binanceError.body.msg) {
+                    errorMessage = `Binance Error ${binanceError.body.code || 'Unknown'}: ${binanceError.body.msg}`;
+                }
+            }
             return {
                 success: false,
                 error: errorMessage
@@ -298,16 +323,29 @@ class BinanceUsdMRestAPI {
                 console.warn('[USD-M] Error canceling existing TP/SL orders:', error);
             }
             const results = [];
+            // Determine the correct side based on current position
+            // For LONG position (positive amount), we need SELL orders to close
+            // For SHORT position (negative amount), we need BUY orders to close
+            const positionsResult = await this.getPositions();
+            let closingSide = 'SELL'; // Default for LONG position
+            if (positionsResult.success && positionsResult.data) {
+                const position = positionsResult.data.find(pos => pos.symbol === symbol);
+                if (position) {
+                    closingSide = position.positionAmount > 0 ? 'SELL' : 'BUY';
+                    console.log(`[USD-M] Position amount: ${position.positionAmount}, closing side: ${closingSide}`);
+                }
+            }
             // Place Take Profit order
             if (takeProfitPrice) {
                 console.log(`[USD-M] Placing Take Profit order: ${takeProfitPrice}`);
                 const tpOrder = await this.placeOrder({
                     symbol,
-                    side: side === 'BUY' ? 'SELL' : 'BUY', // Opposite side for TP
+                    side: closingSide,
                     type: 'TAKE_PROFIT_MARKET',
                     quantity: orderQuantity,
                     stopPrice: takeProfitPrice,
-                    reduceOnly: true
+                    reduceOnly: true,
+                    timeInForce: 'GTC'
                 });
                 results.push({
                     type: 'TAKE_PROFIT',
@@ -321,11 +359,12 @@ class BinanceUsdMRestAPI {
                 console.log(`[USD-M] Placing Stop Loss order: ${stopLossPrice}`);
                 const slOrder = await this.placeOrder({
                     symbol,
-                    side: side === 'BUY' ? 'SELL' : 'BUY', // Opposite side for SL
+                    side: closingSide,
                     type: 'STOP_MARKET',
                     quantity: orderQuantity,
                     stopPrice: stopLossPrice,
-                    reduceOnly: true
+                    reduceOnly: true,
+                    timeInForce: 'GTC'
                 });
                 results.push({
                     type: 'STOP_LOSS',
