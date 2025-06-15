@@ -347,28 +347,45 @@ class BinanceUsdMRestAPI {
       // If no quantity provided, get it from current position
       let orderQuantity = quantity;
       if (!orderQuantity) {
-        const positionsResult = await this.getPositions();
-        if (positionsResult.success && positionsResult.data) {
-          const position = positionsResult.data.find(pos => pos.symbol === symbol);
-          if (position && position.positionAmount !== 0) {
-            orderQuantity = Math.abs(position.positionAmount);
-            console.log(`[USD-M] Using position quantity: ${orderQuantity}`);
+        try {
+          const positionsResult = await this.getPositions();
+          if (positionsResult.success && positionsResult.data) {
+            const position = positionsResult.data.find(pos => pos.symbol === symbol);
+            if (position && position.positionAmount !== 0) {
+              orderQuantity = Math.abs(position.positionAmount);
+              console.log(`[USD-M] Using position quantity: ${orderQuantity}`);
+            }
           }
+        } catch (error) {
+          console.warn('[USD-M] Could not get position for auto-quantity:', error);
         }
       }
 
       if (!orderQuantity) {
         return {
           success: false,
-          error: 'No quantity provided and no open position found'
+          error: 'Quantity is required when no open position exists'
         };
       }
 
       // Cancel existing TP/SL orders for this symbol first
       try {
-        await this.cancelAllOrders(symbol);
+        const openOrders = await this.getOpenOrders(symbol);
+        if (openOrders.success && openOrders.data) {
+          const tpslOrders = openOrders.data.filter((order: any) => 
+            ['TAKE_PROFIT_MARKET', 'STOP_MARKET', 'TAKE_PROFIT', 'STOP'].includes(order.type)
+          );
+          
+          for (const order of tpslOrders) {
+            try {
+              await this.cancelOrder(symbol, order.orderId.toString());
+            } catch (cancelError) {
+              console.warn(`[USD-M] Failed to cancel order ${order.orderId}:`, cancelError);
+            }
+          }
+        }
       } catch (error) {
-        console.log('No existing orders to cancel or error canceling:', error);
+        console.warn('[USD-M] Error canceling existing TP/SL orders:', error);
       }
 
       const results = [];
@@ -385,13 +402,12 @@ class BinanceUsdMRestAPI {
           reduceOnly: true
         });
         
-        if (tpOrder.success) {
-          console.log(`[USD-M] Take Profit order placed: ${tpOrder.data?.orderId}`);
-          results.push({ type: 'TAKE_PROFIT', ...tpOrder });
-        } else {
-          console.error(`[USD-M] Failed to place Take Profit order:`, tpOrder.error);
-          results.push({ type: 'TAKE_PROFIT', success: false, error: tpOrder.error });
-        }
+        results.push({ 
+          type: 'TAKE_PROFIT', 
+          success: tpOrder.success,
+          data: tpOrder.data,
+          error: tpOrder.error
+        });
       }
 
       // Place Stop Loss order
@@ -406,13 +422,12 @@ class BinanceUsdMRestAPI {
           reduceOnly: true
         });
         
-        if (slOrder.success) {
-          console.log(`[USD-M] Stop Loss order placed: ${slOrder.data?.orderId}`);
-          results.push({ type: 'STOP_LOSS', ...slOrder });
-        } else {
-          console.error(`[USD-M] Failed to place Stop Loss order:`, slOrder.error);
-          results.push({ type: 'STOP_LOSS', success: false, error: slOrder.error });
-        }
+        results.push({ 
+          type: 'STOP_LOSS', 
+          success: slOrder.success,
+          data: slOrder.data,
+          error: slOrder.error
+        });
       }
 
       const allSuccessful = results.every(result => result.success);
