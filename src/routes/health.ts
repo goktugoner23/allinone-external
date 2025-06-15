@@ -17,16 +17,27 @@ export interface ApiResponse<T = any> {
 
 // Health check endpoint
 router.get('/health', asyncHandler(async (req: Request, res: Response) => {
-  const status = binanceService.getConnectionStatus();
+  const connectionStatus = binanceService.getConnectionStatus();
+  
   const response: ApiResponse = {
     success: true,
     data: {
       status: 'healthy',
-      timestamp: new Date().toISOString(),
-      services: status,
-      uptime: process.uptime(),
-      memory: process.memoryUsage(),
-      version: process.env.npm_package_version || '1.0.0'
+      services: {
+        usdm: {
+          isConnected: connectionStatus.usdm.isConnected,
+          clientCount: connectionStatus.usdm.clientCount
+        },
+        coinm: {
+          isConnected: connectionStatus.coinm.isConnected,
+          clientCount: connectionStatus.coinm.clientCount
+        },
+        spot: {
+          isConnected: connectionStatus.spot.isConnected,
+          clientCount: connectionStatus.spot.clientCount
+        },
+        isInitialized: connectionStatus.isInitialized
+      }
     },
     timestamp: Date.now()
   };

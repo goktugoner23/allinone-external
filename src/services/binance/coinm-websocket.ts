@@ -32,6 +32,9 @@ class BinanceCoinMWebSocketManager {
 
   async startUserDataStream(): Promise<void> {
     try {
+      console.log('[COIN-M] Initializing WebSocket client with API key:', config.binance.apiKey ? 'Present' : 'Missing');
+      console.log('[COIN-M] Environment:', process.env.NODE_ENV || 'development');
+      
       // Initialize WebSocket client
       this.wsClient = new WebsocketClient({
         api_key: config.binance.apiKey,
@@ -42,6 +45,7 @@ class BinanceCoinMWebSocketManager {
       // Set up event handlers
       this.wsClient.on('open', (data) => {
         console.log('[COIN-M] WebSocket connected:', data.wsKey);
+        console.log('[COIN-M] Connection data:', data);
         this.isConnected = true;
         this.reconnectAttempts = 0;
         this.broadcastToClients({ type: 'coinm_connection', status: 'connected' });
@@ -83,7 +87,9 @@ class BinanceCoinMWebSocketManager {
       });
 
       // Subscribe to COIN-M Futures user data stream
+      console.log('[COIN-M] Subscribing to user data stream...');
       this.wsClient.subscribeCoinFuturesUserDataStream();
+      console.log('[COIN-M] Subscription request sent');
 
     } catch (error) {
       console.error('[COIN-M] Error starting user data stream:', error);

@@ -4,6 +4,7 @@ import BinanceUsdMWebSocketManager from './usdm-websocket';
 import BinanceUsdMRestAPI from './usdm-rest';
 import BinanceCoinMWebSocketManager from './coinm-websocket';
 import BinanceCoinMRestAPI from './coinm-rest';
+import config from '../../config';
 
 export interface ConnectionStatus {
   spot: {
@@ -55,18 +56,42 @@ class BinanceService {
   async initialize(): Promise<void> {
     try {
       console.log('Initializing Binance Service...');
+      console.log('API Key present:', !!config.binance.apiKey);
+      console.log('API Secret present:', !!config.binance.apiSecret);
       
-      // Initialize all WebSocket connections in parallel
-      await Promise.all([
-        this.spotWsManager.initialize(),
-        this.usdMWsManager.initialize(),
-        this.coinMWsManager.initialize()
-      ]);
+      // Initialize all WebSocket connections in parallel with better error handling
+      const initPromises = [
+        this.spotWsManager.initialize().catch(error => {
+          console.error('Spot WebSocket initialization failed:', error);
+          throw new Error(`Spot WebSocket: ${error.message}`);
+        }),
+        this.usdMWsManager.initialize().catch(error => {
+          console.error('USD-M WebSocket initialization failed:', error);
+          throw new Error(`USD-M WebSocket: ${error.message}`);
+        }),
+        this.coinMWsManager.initialize().catch(error => {
+          console.error('COIN-M WebSocket initialization failed:', error);
+          throw new Error(`COIN-M WebSocket: ${error.message}`);
+        })
+      ];
+      
+      await Promise.all(initPromises);
       
       this.isInitialized = true;
-      console.log('Binance Service initialized successfully (Spot + USD-M + COIN-M)');
+      console.log('✅ Binance Service initialized successfully (Spot + USD-M + COIN-M)');
+      
+      // Log connection status after initialization
+      setTimeout(() => {
+        const status = this.getConnectionStatus();
+        console.log('📊 Connection Status Report:');
+        console.log(`  - Spot: ${status.spot.isConnected ? '✅' : '❌'} (${status.spot.clientCount} clients)`);
+        console.log(`  - USD-M: ${status.usdm.isConnected ? '✅' : '❌'} (${status.usdm.clientCount} clients)`);
+        console.log(`  - COIN-M: ${status.coinm.isConnected ? '✅' : '❌'} (${status.coinm.clientCount} clients)`);
+      }, 2000);
+      
     } catch (error) {
-      console.error('Failed to initialize Binance Service:', error);
+      console.error('❌ Failed to initialize Binance Service:', error);
+      this.isInitialized = false;
       throw error;
     }
   }

@@ -342,10 +342,37 @@ class BinanceUsdMRestAPI {
     quantity?: number
   ): Promise<ApiResponse<any>> {
     try {
+      console.log(`[USD-M] Setting TP/SL for ${symbol}: TP=${takeProfitPrice}, SL=${stopLossPrice}, Qty=${quantity}`);
+      
+      // First, cancel any existing TP/SL orders for this symbol
+      try {
+        const openOrders = await this.getOpenOrders(symbol);
+        if (openOrders.success && openOrders.data) {
+          const tpslOrders = openOrders.data.filter((order: any) => 
+            ['TAKE_PROFIT_MARKET', 'STOP_MARKET', 'TAKE_PROFIT', 'STOP'].includes(order.type)
+          );
+          
+          console.log(`[USD-M] Found ${tpslOrders.length} existing TP/SL orders for ${symbol}`);
+          
+          // Cancel existing TP/SL orders
+          for (const order of tpslOrders) {
+            try {
+              console.log(`[USD-M] Canceling existing order: ${order.orderId} (${order.type})`);
+              await this.cancelOrder(symbol, order.orderId.toString());
+            } catch (cancelError) {
+              console.warn(`[USD-M] Failed to cancel order ${order.orderId}:`, cancelError);
+            }
+          }
+        }
+      } catch (error) {
+        console.warn('[USD-M] Error canceling existing TP/SL orders:', error);
+      }
+
       const results = [];
 
       // Place Take Profit order
       if (takeProfitPrice && quantity) {
+        console.log(`[USD-M] Placing Take Profit order: ${takeProfitPrice}`);
         const tpOrder = await this.placeOrder({
           symbol,
           side: side === 'BUY' ? 'SELL' : 'BUY', // Opposite side for TP
@@ -354,11 +381,19 @@ class BinanceUsdMRestAPI {
           stopPrice: takeProfitPrice,
           reduceOnly: true
         });
-        results.push({ type: 'TAKE_PROFIT', ...tpOrder });
+        
+        if (tpOrder.success) {
+          console.log(`[USD-M] Take Profit order placed: ${tpOrder.data?.orderId}`);
+          results.push({ type: 'TAKE_PROFIT', ...tpOrder });
+        } else {
+          console.error(`[USD-M] Failed to place Take Profit order:`, tpOrder.error);
+          results.push({ type: 'TAKE_PROFIT', success: false, error: tpOrder.error });
+        }
       }
 
       // Place Stop Loss order
       if (stopLossPrice && quantity) {
+        console.log(`[USD-M] Placing Stop Loss order: ${stopLossPrice}`);
         const slOrder = await this.placeOrder({
           symbol,
           side: side === 'BUY' ? 'SELL' : 'BUY', // Opposite side for SL
@@ -367,15 +402,26 @@ class BinanceUsdMRestAPI {
           stopPrice: stopLossPrice,
           reduceOnly: true
         });
-        results.push({ type: 'STOP_LOSS', ...slOrder });
+        
+        if (slOrder.success) {
+          console.log(`[USD-M] Stop Loss order placed: ${slOrder.data?.orderId}`);
+          results.push({ type: 'STOP_LOSS', ...slOrder });
+        } else {
+          console.error(`[USD-M] Failed to place Stop Loss order:`, slOrder.error);
+          results.push({ type: 'STOP_LOSS', success: false, error: slOrder.error });
+        }
       }
 
+      const allSuccessful = results.every(result => result.success);
+      
       return {
-        success: true,
-        data: results
+        success: allSuccessful,
+        data: results,
+        error: allSuccessful ? undefined : 'Some orders failed to place'
       };
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      console.error('[USD-M] Error in setTPSL:', errorMessage);
       return {
         success: false,
         error: errorMessage
