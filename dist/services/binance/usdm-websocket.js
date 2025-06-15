@@ -67,6 +67,8 @@ class BinanceUsdMWebSocketManager {
     }
     async startUserDataStream() {
         try {
+            console.log('[USD-M] Initializing WebSocket client with API key:', config_1.default.binance.apiKey ? 'Present' : 'Missing');
+            console.log('[USD-M] Environment:', process.env.NODE_ENV || 'development');
             // Initialize WebSocket client
             this.wsClient = new binance_1.WebsocketClient({
                 api_key: config_1.default.binance.apiKey,
@@ -76,9 +78,10 @@ class BinanceUsdMWebSocketManager {
             // Set up event handlers
             this.wsClient.on('open', (data) => {
                 console.log('[USD-M] WebSocket connected:', data.wsKey);
+                console.log('[USD-M] Connection data:', data);
                 this.isConnected = true;
                 this.reconnectAttempts = 0;
-                this.broadcastToClients({ type: 'connection', status: 'connected' });
+                this.broadcastToClients({ type: 'usdm_connection', status: 'connected' });
             });
             this.wsClient.on('message', (data) => {
                 try {
@@ -99,21 +102,23 @@ class BinanceUsdMWebSocketManager {
             this.wsClient.on('error', (error) => {
                 console.error('[USD-M] WebSocket error:', error);
                 this.isConnected = false;
-                this.broadcastToClients({ type: 'connection', status: 'error', error: String(error) });
+                this.broadcastToClients({ type: 'usdm_connection', status: 'error', error: String(error) });
             });
             this.wsClient.on('reconnecting', (data) => {
                 console.log('[USD-M] WebSocket reconnecting...', data?.wsKey);
                 this.isConnected = false;
-                this.broadcastToClients({ type: 'connection', status: 'reconnecting' });
+                this.broadcastToClients({ type: 'usdm_connection', status: 'reconnecting' });
             });
             this.wsClient.on('reconnected', (data) => {
                 console.log('[USD-M] WebSocket reconnected:', data?.wsKey);
                 this.isConnected = true;
                 this.reconnectAttempts = 0;
-                this.broadcastToClients({ type: 'connection', status: 'reconnected' });
+                this.broadcastToClients({ type: 'usdm_connection', status: 'reconnected' });
             });
             // Subscribe to USD-M Futures user data stream
+            console.log('[USD-M] Subscribing to user data stream...');
             this.wsClient.subscribeUsdFuturesUserDataStream();
+            console.log('[USD-M] Subscription request sent');
         }
         catch (error) {
             console.error('[USD-M] Error starting user data stream:', error);

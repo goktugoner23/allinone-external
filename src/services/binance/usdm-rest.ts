@@ -344,40 +344,43 @@ class BinanceUsdMRestAPI {
     try {
       console.log(`[USD-M] Setting TP/SL for ${symbol}: TP=${takeProfitPrice}, SL=${stopLossPrice}, Qty=${quantity}`);
       
-      // First, cancel any existing TP/SL orders for this symbol
-      try {
-        const openOrders = await this.getOpenOrders(symbol);
-        if (openOrders.success && openOrders.data) {
-          const tpslOrders = openOrders.data.filter((order: any) => 
-            ['TAKE_PROFIT_MARKET', 'STOP_MARKET', 'TAKE_PROFIT', 'STOP'].includes(order.type)
-          );
-          
-          console.log(`[USD-M] Found ${tpslOrders.length} existing TP/SL orders for ${symbol}`);
-          
-          // Cancel existing TP/SL orders
-          for (const order of tpslOrders) {
-            try {
-              console.log(`[USD-M] Canceling existing order: ${order.orderId} (${order.type})`);
-              await this.cancelOrder(symbol, order.orderId.toString());
-            } catch (cancelError) {
-              console.warn(`[USD-M] Failed to cancel order ${order.orderId}:`, cancelError);
-            }
+      // If no quantity provided, get it from current position
+      let orderQuantity = quantity;
+      if (!orderQuantity) {
+        const positionsResult = await this.getPositions();
+        if (positionsResult.success && positionsResult.data) {
+          const position = positionsResult.data.find(pos => pos.symbol === symbol);
+          if (position && position.positionAmount !== 0) {
+            orderQuantity = Math.abs(position.positionAmount);
+            console.log(`[USD-M] Using position quantity: ${orderQuantity}`);
           }
         }
+      }
+
+      if (!orderQuantity) {
+        return {
+          success: false,
+          error: 'No quantity provided and no open position found'
+        };
+      }
+
+      // Cancel existing TP/SL orders for this symbol first
+      try {
+        await this.cancelAllOrders(symbol);
       } catch (error) {
-        console.warn('[USD-M] Error canceling existing TP/SL orders:', error);
+        console.log('No existing orders to cancel or error canceling:', error);
       }
 
       const results = [];
 
       // Place Take Profit order
-      if (takeProfitPrice && quantity) {
+      if (takeProfitPrice) {
         console.log(`[USD-M] Placing Take Profit order: ${takeProfitPrice}`);
         const tpOrder = await this.placeOrder({
           symbol,
           side: side === 'BUY' ? 'SELL' : 'BUY', // Opposite side for TP
           type: 'TAKE_PROFIT_MARKET',
-          quantity,
+          quantity: orderQuantity,
           stopPrice: takeProfitPrice,
           reduceOnly: true
         });
@@ -392,13 +395,13 @@ class BinanceUsdMRestAPI {
       }
 
       // Place Stop Loss order
-      if (stopLossPrice && quantity) {
+      if (stopLossPrice) {
         console.log(`[USD-M] Placing Stop Loss order: ${stopLossPrice}`);
         const slOrder = await this.placeOrder({
           symbol,
           side: side === 'BUY' ? 'SELL' : 'BUY', // Opposite side for SL
           type: 'STOP_MARKET',
-          quantity,
+          quantity: orderQuantity,
           stopPrice: stopLossPrice,
           reduceOnly: true
         });
@@ -422,6 +425,69 @@ class BinanceUsdMRestAPI {
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       console.error('[USD-M] Error in setTPSL:', errorMessage);
+      return {
+        success: false,
+        error: errorMessage,
+        data: [
+          ...(takeProfitPrice ? [{ type: 'TAKE_PROFIT', success: false, error: errorMessage }] : []),
+          ...(stopLossPrice ? [{ type: 'STOP_LOSS', success: false, error: errorMessage }] : [])
+        ]
+      };
+    }
+  }
+
+  // Close position by placing a market order
+  async closePosition(symbol: string, quantity?: number): Promise<ApiResponse<any>> {
+    try {
+      // Get current position to determine side and quantity
+      const positionsResult = await this.getPositions();
+      if (!positionsResult.success || !positionsResult.data) {
+        return {
+          success: false,
+          error: 'Failed to get current positions'
+        };
+      }
+
+      const position = positionsResult.data.find(pos => pos.symbol === symbol);
+      if (!position || position.positionAmount === 0) {
+        return {
+          success: false,
+          error: 'No open position found for this symbol'
+        };
+      }
+
+      const positionAmount = Math.abs(position.positionAmount);
+      const closeQuantity = quantity || positionAmount;
+      const closeSide = position.positionAmount > 0 ? 'SELL' : 'BUY'; // Opposite side to close
+
+      const orderParams = {
+        symbol,
+        side: closeSide as 'BUY' | 'SELL',
+        type: 'MARKET' as const,
+        quantity: closeQuantity,
+        reduceOnly: 'true' as const
+      };
+
+      const result = await this.client.submitNewOrder(orderParams);
+      
+      return {
+        success: true,
+        data: {
+          orderId: result.orderId,
+          symbol: result.symbol,
+          status: result.status,
+          side: result.side,
+          type: result.type,
+          quantity: toNumber(result.origQty),
+          executedQty: toNumber(result.executedQty),
+          price: toNumber(result.price),
+          reduceOnly: result.reduceOnly,
+          positionSide: result.positionSide,
+          time: result.updateTime
+        }
+      };
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       return {
         success: false,
         error: errorMessage

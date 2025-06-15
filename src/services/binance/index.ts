@@ -214,6 +214,12 @@ class BinanceService {
     return this.usdMRestAPI.setTPSL(symbol, side, takeProfitPrice, stopLossPrice, quantity);
   }
 
+  // Close USD-M Futures position
+  async closePosition(symbol: string, quantity?: number) {
+    return this.usdMRestAPI.closePosition(symbol, quantity);
+  }
+
+  // USD-M Futures market data
   async getBalance(asset?: string) {
     return this.usdMRestAPI.getBalance(asset);
   }
@@ -261,7 +267,12 @@ class BinanceService {
     stopLossPrice?: number, 
     quantity?: number
   ) {
-    return this.coinMRestAPI.setTPSL(symbol, side, takeProfitPrice, stopLossPrice, quantity);
+    return this.coinMRestAPI.setCoinMTPSL(symbol, side, takeProfitPrice, stopLossPrice, quantity);
+  }
+
+  // Close COIN-M Futures position
+  async closeCoinMPosition(symbol: string, quantity?: number) {
+    return this.coinMRestAPI.closePosition(symbol, quantity);
   }
 
   async getCoinMBalance(asset?: string) {

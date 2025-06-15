@@ -135,6 +135,29 @@ router.post('/tpsl', validateTPSL, asyncHandler(async (req: Request, res: Respon
   res.status(result.success ? 201 : 400).json(response);
 }));
 
+// Close Position for USD-M
+router.post('/close-position', validateSymbol, asyncHandler(async (req: Request, res: Response) => {
+  const { symbol, quantity } = req.body;
+  
+  if (!symbol) {
+    return res.status(400).json({
+      success: false,
+      error: 'Symbol is required',
+      timestamp: Date.now()
+    });
+  }
+
+  const result = await binanceService.closePosition(symbol, quantity);
+  
+  const response: ApiResponse = {
+    success: result.success,
+    data: result.data,
+    error: result.error,
+    timestamp: Date.now()
+  };
+  res.status(result.success ? 201 : 400).json(response);
+}));
+
 // ============= USD-M FUTURES MARKET DATA ROUTES =============
 
 // Get USD-M price

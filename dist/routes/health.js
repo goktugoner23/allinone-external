@@ -12,16 +12,26 @@ const serviceManager = services_1.default.getInstance();
 const binanceService = serviceManager.getBinanceService();
 // Health check endpoint
 router.get('/health', (0, errorHandler_1.asyncHandler)(async (req, res) => {
-    const status = binanceService.getConnectionStatus();
+    const connectionStatus = binanceService.getConnectionStatus();
     const response = {
         success: true,
         data: {
             status: 'healthy',
-            timestamp: new Date().toISOString(),
-            services: status,
-            uptime: process.uptime(),
-            memory: process.memoryUsage(),
-            version: process.env.npm_package_version || '1.0.0'
+            services: {
+                usdm: {
+                    isConnected: connectionStatus.usdm.isConnected,
+                    clientCount: connectionStatus.usdm.clientCount
+                },
+                coinm: {
+                    isConnected: connectionStatus.coinm.isConnected,
+                    clientCount: connectionStatus.coinm.clientCount
+                },
+                spot: {
+                    isConnected: connectionStatus.spot.isConnected,
+                    clientCount: connectionStatus.spot.clientCount
+                },
+                isInitialized: connectionStatus.isInitialized
+            }
         },
         timestamp: Date.now()
     };

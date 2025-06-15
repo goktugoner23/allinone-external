@@ -246,46 +246,138 @@ class BinanceCoinMRestAPI {
         }
     }
     // Set Take Profit and Stop Loss
-    async setTPSL(symbol, side, takeProfitPrice, stopLossPrice, quantity) {
+    async setCoinMTPSL(symbol, side, takeProfitPrice, stopLossPrice, quantity) {
         try {
-            const orders = [];
-            if (takeProfitPrice && quantity) {
-                const tpOrder = {
-                    symbol,
-                    side: (side === 'BUY' ? 'SELL' : 'BUY'), // Properly type the side
-                    type: 'TAKE_PROFIT_MARKET',
-                    quantity: quantity,
-                    stopPrice: takeProfitPrice,
-                    reduceOnly: 'true', // Type assertion for binance library
-                    timeInForce: 'GTC'
-                };
-                const tpResult = await this.client.submitNewOrder(tpOrder);
-                orders.push(tpResult);
-            }
-            if (stopLossPrice && quantity) {
-                const slOrder = {
-                    symbol,
-                    side: (side === 'BUY' ? 'SELL' : 'BUY'), // Properly type the side
-                    type: 'STOP_MARKET',
-                    quantity: quantity,
-                    stopPrice: stopLossPrice,
-                    reduceOnly: 'true', // Type assertion for binance library
-                    timeInForce: 'GTC'
-                };
-                const slResult = await this.client.submitNewOrder(slOrder);
-                orders.push(slResult);
-            }
-            return {
-                success: true,
-                data: {
-                    orders,
-                    contractType: 'COIN-M'
+            console.log(`[COIN-M] Setting TP/SL for ${symbol}: TP=${takeProfitPrice}, SL=${stopLossPrice}, Qty=${quantity}`);
+            // First, cancel any existing TP/SL orders for this symbol
+            try {
+                const openOrders = await this.getOpenOrders(symbol);
+                if (openOrders.success && openOrders.data) {
+                    const tpslOrders = openOrders.data.filter((order) => ['TAKE_PROFIT_MARKET', 'STOP_MARKET', 'TAKE_PROFIT', 'STOP'].includes(order.type));
+                    console.log(`[COIN-M] Found ${tpslOrders.length} existing TP/SL orders for ${symbol}`);
+                    // Cancel existing TP/SL orders
+                    for (const order of tpslOrders) {
+                        try {
+                            console.log(`[COIN-M] Canceling existing order: ${order.orderId} (${order.type})`);
+                            await this.cancelOrder(symbol, order.orderId.toString());
+                        }
+                        catch (cancelError) {
+                            console.warn(`[COIN-M] Failed to cancel order ${order.orderId}:`, cancelError);
+                        }
+                    }
                 }
+            }
+            catch (error) {
+                console.warn('[COIN-M] Error canceling existing TP/SL orders:', error);
+            }
+            const results = [];
+            // Place Take Profit order
+            if (takeProfitPrice && quantity) {
+                console.log(`[COIN-M] Placing Take Profit order: ${takeProfitPrice}`);
+                const tpOrder = await this.placeOrder({
+                    symbol,
+                    side: side === 'BUY' ? 'SELL' : 'BUY', // Opposite side for TP
+                    type: 'TAKE_PROFIT_MARKET',
+                    quantity,
+                    stopPrice: takeProfitPrice,
+                    reduceOnly: true
+                });
+                if (tpOrder.success) {
+                    console.log(`[COIN-M] Take Profit order placed: ${tpOrder.data?.orderId}`);
+                    results.push({ type: 'TAKE_PROFIT', ...tpOrder });
+                }
+                else {
+                    console.error(`[COIN-M] Failed to place Take Profit order:`, tpOrder.error);
+                    results.push({ type: 'TAKE_PROFIT', success: false, error: tpOrder.error });
+                }
+            }
+            // Place Stop Loss order
+            if (stopLossPrice && quantity) {
+                console.log(`[COIN-M] Placing Stop Loss order: ${stopLossPrice}`);
+                const slOrder = await this.placeOrder({
+                    symbol,
+                    side: side === 'BUY' ? 'SELL' : 'BUY', // Opposite side for SL
+                    type: 'STOP_MARKET',
+                    quantity,
+                    stopPrice: stopLossPrice,
+                    reduceOnly: true
+                });
+                if (slOrder.success) {
+                    console.log(`[COIN-M] Stop Loss order placed: ${slOrder.data?.orderId}`);
+                    results.push({ type: 'STOP_LOSS', ...slOrder });
+                }
+                else {
+                    console.error(`[COIN-M] Failed to place Stop Loss order:`, slOrder.error);
+                    results.push({ type: 'STOP_LOSS', success: false, error: slOrder.error });
+                }
+            }
+            const allSuccessful = results.every(result => result.success);
+            return {
+                success: allSuccessful,
+                data: results,
+                error: allSuccessful ? undefined : 'Some orders failed to place'
             };
         }
         catch (error) {
             const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-            console.error('Error setting COIN-M TP/SL:', errorMessage);
+            console.error('[COIN-M] Error in setCoinMTPSL:', errorMessage);
+            return {
+                success: false,
+                error: `COIN-M: ${errorMessage}`,
+                data: [
+                    ...(takeProfitPrice ? [{ type: 'TAKE_PROFIT', success: false, error: errorMessage }] : []),
+                    ...(stopLossPrice ? [{ type: 'STOP_LOSS', success: false, error: errorMessage }] : [])
+                ]
+            };
+        }
+    }
+    // Close COIN-M position by placing a market order
+    async closePosition(symbol, quantity) {
+        try {
+            // Get current position to determine side and quantity
+            const positionsResult = await this.getPositions();
+            if (!positionsResult.success || !positionsResult.data) {
+                return {
+                    success: false,
+                    error: 'Failed to get current COIN-M positions'
+                };
+            }
+            const position = positionsResult.data.find(pos => pos.symbol === symbol);
+            if (!position || position.positionAmount === 0) {
+                return {
+                    success: false,
+                    error: 'No open COIN-M position found for this symbol'
+                };
+            }
+            const positionAmount = Math.abs(position.positionAmount);
+            const closeQuantity = quantity || positionAmount;
+            const closeSide = position.positionAmount > 0 ? 'SELL' : 'BUY'; // Opposite side to close
+            const orderData = {
+                symbol,
+                side: closeSide,
+                type: 'MARKET',
+                quantity: closeQuantity,
+                reduceOnly: true
+            };
+            const result = await this.placeOrder(orderData);
+            if (result.success) {
+                return {
+                    success: true,
+                    data: {
+                        ...result.data,
+                        contractType: 'COIN-M'
+                    }
+                };
+            }
+            else {
+                return {
+                    success: false,
+                    error: `COIN-M: ${result.error}`
+                };
+            }
+        }
+        catch (error) {
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
             return {
                 success: false,
                 error: `COIN-M: ${errorMessage}`

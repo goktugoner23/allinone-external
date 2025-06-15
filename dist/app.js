@@ -54,23 +54,6 @@ app.use((req, res, next) => {
     console.log(`${new Date().toISOString()} - ${req.method} ${req.path} - ${req.ip}`);
     next();
 });
-// Health check endpoint
-app.get('/health', (0, errorHandler_1.asyncHandler)(async (req, res) => {
-    const status = binanceService.getConnectionStatus();
-    const response = {
-        success: true,
-        data: {
-            status: 'healthy',
-            timestamp: new Date().toISOString(),
-            services: status,
-            uptime: process.uptime(),
-            memory: process.memoryUsage(),
-            version: process.env.npm_package_version || '1.0.0'
-        },
-        timestamp: Date.now()
-    };
-    res.json(response);
-}));
 // Use organized routes
 app.use(routes_1.default);
 // WebSocket connection handling

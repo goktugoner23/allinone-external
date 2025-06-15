@@ -59,7 +59,8 @@ declare class BinanceCoinMRestAPI {
     placeOrder(orderData: CoinMOrderData): Promise<ApiResponse<any>>;
     cancelOrder(symbol: string, orderId: string): Promise<ApiResponse<any>>;
     cancelAllOrders(symbol: string): Promise<ApiResponse<any>>;
-    setTPSL(symbol: string, side: 'BUY' | 'SELL', takeProfitPrice?: number, stopLossPrice?: number, quantity?: number): Promise<ApiResponse<any>>;
+    setCoinMTPSL(symbol: string, side: 'BUY' | 'SELL', takeProfitPrice?: number, stopLossPrice?: number, quantity?: number): Promise<ApiResponse<any>>;
+    closePosition(symbol: string, quantity?: number): Promise<ApiResponse<any>>;
     getBalance(asset?: string): Promise<ApiResponse<any>>;
     getPrice(symbol: string): Promise<ApiResponse<any>>;
     getAllPrices(): Promise<ApiResponse<any[]>>;

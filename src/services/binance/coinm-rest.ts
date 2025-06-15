@@ -321,7 +321,7 @@ class BinanceCoinMRestAPI {
   }
 
   // Set Take Profit and Stop Loss
-  async setTPSL(
+  async setCoinMTPSL(
     symbol: string, 
     side: 'BUY' | 'SELL', 
     takeProfitPrice?: number, 
@@ -403,15 +403,73 @@ class BinanceCoinMRestAPI {
       
       return {
         success: allSuccessful,
-        data: {
-          orders: results,
-          contractType: 'COIN-M'
-        },
+        data: results,
         error: allSuccessful ? undefined : 'Some orders failed to place'
       };
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      console.error('[COIN-M] Error in setTPSL:', errorMessage);
+      console.error('[COIN-M] Error in setCoinMTPSL:', errorMessage);
+      return {
+        success: false,
+        error: `COIN-M: ${errorMessage}`,
+        data: [
+          ...(takeProfitPrice ? [{ type: 'TAKE_PROFIT', success: false, error: errorMessage }] : []),
+          ...(stopLossPrice ? [{ type: 'STOP_LOSS', success: false, error: errorMessage }] : [])
+        ]
+      };
+    }
+  }
+
+  // Close COIN-M position by placing a market order
+  async closePosition(symbol: string, quantity?: number): Promise<ApiResponse<any>> {
+    try {
+      // Get current position to determine side and quantity
+      const positionsResult = await this.getPositions();
+      if (!positionsResult.success || !positionsResult.data) {
+        return {
+          success: false,
+          error: 'Failed to get current COIN-M positions'
+        };
+      }
+
+      const position = positionsResult.data.find(pos => pos.symbol === symbol);
+      if (!position || position.positionAmount === 0) {
+        return {
+          success: false,
+          error: 'No open COIN-M position found for this symbol'
+        };
+      }
+
+      const positionAmount = Math.abs(position.positionAmount);
+      const closeQuantity = quantity || positionAmount;
+      const closeSide = position.positionAmount > 0 ? 'SELL' : 'BUY'; // Opposite side to close
+
+      const orderData = {
+        symbol,
+        side: closeSide as 'BUY' | 'SELL',
+        type: 'MARKET' as const,
+        quantity: closeQuantity,
+        reduceOnly: true
+      };
+
+      const result = await this.placeOrder(orderData);
+      
+      if (result.success) {
+        return {
+          success: true,
+          data: {
+            ...result.data,
+            contractType: 'COIN-M'
+          }
+        };
+      } else {
+        return {
+          success: false,
+          error: `COIN-M: ${result.error}`
+        };
+      }
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       return {
         success: false,
         error: `COIN-M: ${errorMessage}`

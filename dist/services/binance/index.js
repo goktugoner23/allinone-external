@@ -9,6 +9,7 @@ const usdm_websocket_1 = __importDefault(require("./usdm-websocket"));
 const usdm_rest_1 = __importDefault(require("./usdm-rest"));
 const coinm_websocket_1 = __importDefault(require("./coinm-websocket"));
 const coinm_rest_1 = __importDefault(require("./coinm-rest"));
+const config_1 = __importDefault(require("../../config"));
 class BinanceService {
     constructor() {
         this.isInitialized = false;
@@ -26,17 +27,38 @@ class BinanceService {
     async initialize() {
         try {
             console.log('Initializing Binance Service...');
-            // Initialize all WebSocket connections in parallel
-            await Promise.all([
-                this.spotWsManager.initialize(),
-                this.usdMWsManager.initialize(),
-                this.coinMWsManager.initialize()
-            ]);
+            console.log('API Key present:', !!config_1.default.binance.apiKey);
+            console.log('API Secret present:', !!config_1.default.binance.apiSecret);
+            // Initialize all WebSocket connections in parallel with better error handling
+            const initPromises = [
+                this.spotWsManager.initialize().catch(error => {
+                    console.error('Spot WebSocket initialization failed:', error);
+                    throw new Error(`Spot WebSocket: ${error.message}`);
+                }),
+                this.usdMWsManager.initialize().catch(error => {
+                    console.error('USD-M WebSocket initialization failed:', error);
+                    throw new Error(`USD-M WebSocket: ${error.message}`);
+                }),
+                this.coinMWsManager.initialize().catch(error => {
+                    console.error('COIN-M WebSocket initialization failed:', error);
+                    throw new Error(`COIN-M WebSocket: ${error.message}`);
+                })
+            ];
+            await Promise.all(initPromises);
             this.isInitialized = true;
-            console.log('Binance Service initialized successfully (Spot + USD-M + COIN-M)');
+            console.log('✅ Binance Service initialized successfully (Spot + USD-M + COIN-M)');
+            // Log connection status after initialization
+            setTimeout(() => {
+                const status = this.getConnectionStatus();
+                console.log('📊 Connection Status Report:');
+                console.log(`  - Spot: ${status.spot.isConnected ? '✅' : '❌'} (${status.spot.clientCount} clients)`);
+                console.log(`  - USD-M: ${status.usdm.isConnected ? '✅' : '❌'} (${status.usdm.clientCount} clients)`);
+                console.log(`  - COIN-M: ${status.coinm.isConnected ? '✅' : '❌'} (${status.coinm.clientCount} clients)`);
+            }, 2000);
         }
         catch (error) {
-            console.error('Failed to initialize Binance Service:', error);
+            console.error('❌ Failed to initialize Binance Service:', error);
+            this.isInitialized = false;
             throw error;
         }
     }
@@ -129,6 +151,11 @@ class BinanceService {
     async setTPSL(symbol, side, takeProfitPrice, stopLossPrice, quantity) {
         return this.usdMRestAPI.setTPSL(symbol, side, takeProfitPrice, stopLossPrice, quantity);
     }
+    // Close USD-M Futures position
+    async closePosition(symbol, quantity) {
+        return this.usdMRestAPI.closePosition(symbol, quantity);
+    }
+    // USD-M Futures market data
     async getBalance(asset) {
         return this.usdMRestAPI.getBalance(asset);
     }
@@ -160,7 +187,11 @@ class BinanceService {
         return this.coinMRestAPI.cancelAllOrders(symbol);
     }
     async setCoinMTPSL(symbol, side, takeProfitPrice, stopLossPrice, quantity) {
-        return this.coinMRestAPI.setTPSL(symbol, side, takeProfitPrice, stopLossPrice, quantity);
+        return this.coinMRestAPI.setCoinMTPSL(symbol, side, takeProfitPrice, stopLossPrice, quantity);
+    }
+    // Close COIN-M Futures position
+    async closeCoinMPosition(symbol, quantity) {
+        return this.coinMRestAPI.closePosition(symbol, quantity);
     }
     async getCoinMBalance(asset) {
         return this.coinMRestAPI.getBalance(asset);

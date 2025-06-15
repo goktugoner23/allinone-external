@@ -107,6 +107,25 @@ router.post('/tpsl', validation_1.validateTPSL, (0, errorHandler_1.asyncHandler)
     };
     res.status(result.success ? 201 : 400).json(response);
 }));
+// Close Position for COIN-M
+router.post('/close-position', validation_1.validateSymbol, (0, errorHandler_1.asyncHandler)(async (req, res) => {
+    const { symbol, quantity } = req.body;
+    if (!symbol) {
+        return res.status(400).json({
+            success: false,
+            error: 'Symbol is required',
+            timestamp: Date.now()
+        });
+    }
+    const result = await binanceService.closeCoinMPosition(symbol, quantity);
+    const response = {
+        success: result.success,
+        data: result.data,
+        error: result.error,
+        timestamp: Date.now()
+    };
+    res.status(result.success ? 201 : 400).json(response);
+}));
 // ============= COIN-M FUTURES MARKET DATA ROUTES =============
 // Get COIN-M price
 router.get('/price/:symbol?', (0, errorHandler_1.asyncHandler)(async (req, res) => {

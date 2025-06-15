@@ -12,30 +12,18 @@ const config = {
     binance: {
         apiKey: process.env.BINANCE_API_KEY,
         apiSecret: process.env.BINANCE_API_SECRET,
-        useTestnet: !isProduction,
+        useTestnet: false,
         spot: {
-            baseUrl: isProduction
-                ? 'https://api.binance.com'
-                : 'https://testnet.binance.vision',
-            wsUrl: isProduction
-                ? 'wss://stream.binance.com:9443/ws'
-                : 'wss://testnet.binance.vision/ws'
+            baseUrl: 'https://api.binance.com',
+            wsUrl: 'wss://stream.binance.com:9443/ws'
         },
         futures: {
-            baseUrl: isProduction
-                ? 'https://fapi.binance.com'
-                : 'https://testnet.binancefuture.com',
-            wsUrl: isProduction
-                ? 'wss://fstream.binance.com/ws'
-                : 'wss://stream.binancefuture.com/ws'
+            baseUrl: 'https://fapi.binance.com',
+            wsUrl: 'wss://fstream.binance.com/ws'
         },
         coinm: {
-            baseUrl: isProduction
-                ? 'https://dapi.binance.com'
-                : 'https://testnet.binancefuture.com',
-            wsUrl: isProduction
-                ? 'wss://dstream.binance.com/ws'
-                : 'wss://dstream.binancefuture.com/ws'
+            baseUrl: 'https://dapi.binance.com',
+            wsUrl: 'wss://dstream.binance.com/ws'
         }
     },
     cors: {

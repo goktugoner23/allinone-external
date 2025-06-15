@@ -44,6 +44,7 @@ declare class BinanceService {
     cancelOrder(symbol: string, orderId: string): Promise<import("./usdm-rest").ApiResponse<any>>;
     cancelAllOrders(symbol: string): Promise<import("./usdm-rest").ApiResponse<any>>;
     setTPSL(symbol: string, side: 'BUY' | 'SELL', takeProfitPrice?: number, stopLossPrice?: number, quantity?: number): Promise<import("./usdm-rest").ApiResponse<any>>;
+    closePosition(symbol: string, quantity?: number): Promise<import("./usdm-rest").ApiResponse<any>>;
     getBalance(asset?: string): Promise<import("./usdm-rest").ApiResponse<any>>;
     getPrice(symbol: string): Promise<import("./usdm-rest").ApiResponse<any>>;
     getAllPrices(): Promise<import("./usdm-rest").ApiResponse<any[]>>;
@@ -54,6 +55,7 @@ declare class BinanceService {
     cancelCoinMOrder(symbol: string, orderId: string): Promise<import("./coinm-rest").ApiResponse<any>>;
     cancelAllCoinMOrders(symbol: string): Promise<import("./coinm-rest").ApiResponse<any>>;
     setCoinMTPSL(symbol: string, side: 'BUY' | 'SELL', takeProfitPrice?: number, stopLossPrice?: number, quantity?: number): Promise<import("./coinm-rest").ApiResponse<any>>;
+    closeCoinMPosition(symbol: string, quantity?: number): Promise<import("./coinm-rest").ApiResponse<any>>;
     getCoinMBalance(asset?: string): Promise<import("./coinm-rest").ApiResponse<any>>;
     getCoinMPrice(symbol: string): Promise<import("./coinm-rest").ApiResponse<any>>;
     getAllCoinMPrices(): Promise<import("./coinm-rest").ApiResponse<any[]>>;
