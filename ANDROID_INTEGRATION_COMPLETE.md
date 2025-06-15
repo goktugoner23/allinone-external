@@ -2,10 +2,11 @@
 
 ## 🚀 Quick Start
 
-**Base URL**: `https://allinone-app-5t9md.ondigitalocean.app`
+**Base URL**: `http://129.212.143.6`
 
-**Status**: ✅ Service is running and all REST APIs are fully functional
-**WebSocket Status**: ⚠️ USD-M and COIN-M WebSockets require IP whitelisting (Spot WebSocket works)
+**Status**: ✅ Service is running on DigitalOcean Droplet with static IP
+**Outbound IP**: `209.38.217.146` (whitelisted in Binance API)
+**Reserved IP**: `129.212.143.6` (permanent static inbound IP)
 
 ## 📱 Core API Endpoints for Android App
 
