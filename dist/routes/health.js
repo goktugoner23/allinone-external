@@ -37,5 +37,36 @@ router.get('/health', (0, errorHandler_1.asyncHandler)(async (req, res) => {
     };
     res.json(response);
 }));
+// Add endpoint to check outbound IP
+router.get('/outbound-ip', async (req, res) => {
+    try {
+        const https = require('https');
+        const getOutboundIP = () => {
+            return new Promise((resolve, reject) => {
+                https.get('https://api.ipify.org', (response) => {
+                    let data = '';
+                    response.on('data', (chunk) => data += chunk);
+                    response.on('end', () => resolve(data.trim()));
+                }).on('error', reject);
+            });
+        };
+        const outboundIP = await getOutboundIP();
+        res.json({
+            success: true,
+            data: {
+                outboundIP,
+                timestamp: Date.now(),
+                method: 'api.ipify.org'
+            }
+        });
+    }
+    catch (error) {
+        res.status(500).json({
+            success: false,
+            error: 'Failed to determine outbound IP',
+            timestamp: Date.now()
+        });
+    }
+});
 exports.default = router;
 //# sourceMappingURL=health.js.map
