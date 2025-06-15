@@ -35,7 +35,12 @@ class BinanceCoinMWebSocketManager {
       console.log('[COIN-M] Initializing WebSocket client with API key:', config.binance.apiKey ? 'Present' : 'Missing');
       console.log('[COIN-M] Environment:', process.env.NODE_ENV || 'development');
       
-      // Initialize WebSocket client
+      // Validate API credentials before initializing
+      if (!config.binance.apiKey || !config.binance.apiSecret) {
+        throw new Error('Binance API credentials are missing');
+      }
+      
+      // Initialize WebSocket client with explicit credentials
       this.wsClient = new WebsocketClient({
         api_key: config.binance.apiKey,
         api_secret: config.binance.apiSecret,
