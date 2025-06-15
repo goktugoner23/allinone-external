@@ -1,0 +1,565 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+# Architecture Guidelines
+
+Architectural patterns and design principles for scalable Node.js/TypeScript APIs and backend services, particularly for trading applications.
+
+## Service Architecture Patterns
+
+### Layered Architecture
+```typescript
+// ✅ Good - Clear separation of concerns
+src/
+├── app.ts                    // Express application setup
+├── server.ts                 // Server entry point
+├── controllers/              // HTTP request handlers
+│   ├── binance.controller.ts
+│   └── websocket.controller.ts
+├── services/                 // Business logic layer
+│   ├── binance/
+│   │   ├── index.ts
+│   │   ├── usdm-rest.ts
+│   │   ├── usdm-websocket.ts
+│   │   ├── coinm-rest.ts
+│   │   └── coinm-websocket.ts
+│   └── validation/
+├── repositories/             // Data access layer
+│   ├── order.repository.ts
+│   └── position.repository.ts
+├── middleware/               // Express middleware
+│   ├── auth.middleware.ts
+│   ├── validation.middleware.ts
+│   └── error.middleware.ts
+├── types/                    // TypeScript type definitions
+│   ├── api.types.ts
+│   ├── binance.types.ts
+│   └── common.types.ts
+├── utils/                    // Utility functions
+│   ├── logger.ts
+│   ├── config.ts
+│   └── helpers.ts
+└── config/                   // Configuration files
+    ├── database.ts
+    └── environment.ts
+```
+
+### Dependency Injection Pattern
+```typescript
+// ✅ Good - Dependency injection for testability
+interface IBinanceService {
+  getAccountInfo(): Promise<AccountInfo>;
+  getPositions(): Promise<Position[]>;
+  placeOrder(order: OrderData): Promise<Order>;
+}
+
+interface IOrderRepository {
+  save(order: Order): Promise<void>;
+  findById(id: string): Promise<Order | null>;
+  findBySymbol(symbol: string): Promise<Order[]>;
+}
+
+class OrderService {
+  constructor(
+    private binanceService: IBinanceService,
+    private orderRepository: IOrderRepository,
+    private logger: ILogger
+  ) {}
+
+  async placeOrder(orderData: OrderData): Promise<ApiResponse<Order>> {
+    try {
+      // Validate order
+      const validation = await this.validateOrder(orderData);
+      if (!validation.isValid) {
+        return { success: false, error: validation.error };
+      }
+
+      // Place order via Binance
+      const order = await this.binanceService.placeOrder(orderData);
+      
+      // Save to repository
+      await this.orderRepository.save(order);
+      
+      this.logger.info('Order placed successfully', { orderId: order.orderId });
+      
+      return { success: true, data: order };
+    } catch (error) {
+      this.logger.error('Failed to place order', { error, orderData });
+      throw error;
+    }
+  }
+}
+
+// Dependency injection container
+class Container {
+  private services = new Map<string, any>();
+
+  register<T>(name: string, factory: () => T): void {
+    this.services.set(name, factory);
+  }
+
+  resolve<T>(name: string): T {
+    const factory = this.services.get(name);
+    if (!factory) {
+      throw new Error(`Service ${name} not registered`);
+    }
+    return factory();
+  }
+}
+
+// Registration
+const container = new Container();
+container.register('binanceService', () => new BinanceService());
+container.register('orderRepository', () => new OrderRepository());
+container.register('orderService', () => new OrderService(
+  container.resolve('binanceService'),
+  container.resolve('orderRepository'),
+  container.resolve('logger')
+));
+```
+
+## Event-Driven Architecture
+
+### Event Bus Pattern
+```typescript
+// ✅ Good - Event-driven communication between services
+interface DomainEvent {
+  eventId: string;
+  eventType: string;
+  timestamp: number;
+  data: any;
+  metadata?: Record<string, any>;
+}
+
+class EventBus {
+  private handlers = new Map<string, Array<(event: DomainEvent) => Promise<void>>>();
+
+  subscribe(eventType: string, handler: (event: DomainEvent) => Promise<void>): void {
+    const handlers = this.handlers.get(eventType) || [];
+    handlers.push(handler);
+    this.handlers.set(eventType, handlers);
+  }
+
+  async publish(event: DomainEvent): Promise<void> {
+    const handlers = this.handlers.get(event.eventType) || [];
+    
+    // Execute all handlers in parallel
+    await Promise.all(
+      handlers.map(handler => 
+        handler(event).catch(error => 
+          console.error(`Error in event handler for ${event.eventType}:`, error)
+        )
+      )
+    );
+  }
+}
+
+// Usage
+class OrderService {
+  constructor(private eventBus: EventBus) {}
+
+  async placeOrder(orderData: OrderData): Promise<Order> {
+    const order = await this.executeOrder(orderData);
+    
+    // Publish order placed event
+    await this.eventBus.publish({
+      eventId: generateId(),
+      eventType: 'ORDER_PLACED',
+      timestamp: Date.now(),
+      data: { order }
+    });
+    
+    return order;
+  }
+}
+
+// Event handlers
+class NotificationService {
+  constructor(eventBus: EventBus) {
+    eventBus.subscribe('ORDER_PLACED', this.handleOrderPlaced.bind(this));
+    eventBus.subscribe('ORDER_FILLED', this.handleOrderFilled.bind(this));
+  }
+
+  private async handleOrderPlaced(event: DomainEvent): Promise<void> {
+    const { order } = event.data;
+    await this.sendOrderNotification(order);
+  }
+
+  private async handleOrderFilled(event: DomainEvent): Promise<void> {
+    const { order } = event.data;
+    await this.sendFillNotification(order);
+  }
+}
+```
+
+## Repository Pattern
+
+### Data Access Abstraction
+```typescript
+// ✅ Good - Repository pattern for data access
+interface IRepository<T, ID> {
+  findById(id: ID): Promise<T | null>;
+  findAll(): Promise<T[]>;
+  save(entity: T): Promise<T>;
+  update(id: ID, updates: Partial<T>): Promise<T>;
+  delete(id: ID): Promise<void>;
+}
+
+interface IOrderRepository extends IRepository<Order, string> {
+  findBySymbol(symbol: string): Promise<Order[]>;
+  findByStatus(status: OrderStatus): Promise<Order[]>;
+  findByDateRange(startDate: Date, endDate: Date): Promise<Order[]>;
+}
+
+class InMemoryOrderRepository implements IOrderRepository {
+  private orders = new Map<string, Order>();
+
+  async findById(id: string): Promise<Order | null> {
+    return this.orders.get(id) || null;
+  }
+
+  async findAll(): Promise<Order[]> {
+    return Array.from(this.orders.values());
+  }
+
+  async save(order: Order): Promise<Order> {
+    this.orders.set(order.orderId, order);
+    return order;
+  }
+
+  async update(id: string, updates: Partial<Order>): Promise<Order> {
+    const existing = this.orders.get(id);
+    if (!existing) {
+      throw new Error(`Order ${id} not found`);
+    }
+    
+    const updated = { ...existing, ...updates };
+    this.orders.set(id, updated);
+    return updated;
+  }
+
+  async delete(id: string): Promise<void> {
+    this.orders.delete(id);
+  }
+
+  async findBySymbol(symbol: string): Promise<Order[]> {
+    return Array.from(this.orders.values())
+      .filter(order => order.symbol === symbol);
+  }
+
+  async findByStatus(status: OrderStatus): Promise<Order[]> {
+    return Array.from(this.orders.values())
+      .filter(order => order.status === status);
+  }
+
+  async findByDateRange(startDate: Date, endDate: Date): Promise<Order[]> {
+    return Array.from(this.orders.values())
+      .filter(order => 
+        order.timestamp >= startDate.getTime() && 
+        order.timestamp <= endDate.getTime()
+      );
+  }
+}
+```
+
+## Factory Pattern
+
+### Service Factory
+```typescript
+// ✅ Good - Factory pattern for creating services
+interface IBinanceClient {
+  getAccountInfo(): Promise<AccountInfo>;
+  getPositions(): Promise<Position[]>;
+  placeOrder(order: OrderData): Promise<Order>;
+}
+
+class BinanceClientFactory {
+  static createClient(contractType: 'USDM' | 'COINM' | 'SPOT'): IBinanceClient {
+    switch (contractType) {
+      case 'USDM':
+        return new USDMBinanceClient();
+      case 'COINM':
+        return new COINMBinanceClient();
+      case 'SPOT':
+        return new SpotBinanceClient();
+      default:
+        throw new Error(`Unsupported contract type: ${contractType}`);
+    }
+  }
+}
+
+class USDMBinanceClient implements IBinanceClient {
+  private client: USDMClient;
+
+  constructor() {
+    this.client = new USDMClient({
+      api_key: process.env.BINANCE_API_KEY!,
+      api_secret: process.env.BINANCE_API_SECRET!,
+    });
+  }
+
+  async getAccountInfo(): Promise<AccountInfo> {
+    return await this.client.getAccountInformation();
+  }
+
+  async getPositions(): Promise<Position[]> {
+    return await this.client.getPositionInformation();
+  }
+
+  async placeOrder(order: OrderData): Promise<Order> {
+    return await this.client.submitNewOrder(order);
+  }
+}
+
+// Usage
+const usdmClient = BinanceClientFactory.createClient('USDM');
+const coinmClient = BinanceClientFactory.createClient('COINM');
+```
+
+## Strategy Pattern
+
+### Trading Strategy Pattern
+```typescript
+// ✅ Good - Strategy pattern for different trading strategies
+interface ITradingStrategy {
+  shouldPlaceOrder(marketData: MarketData, position: Position): boolean;
+  calculateOrderSize(balance: number, riskPercentage: number): number;
+  getOrderType(): OrderType;
+}
+
+class ScalpingStrategy implements ITradingStrategy {
+  shouldPlaceOrder(marketData: MarketData, position: Position): boolean {
+    // Scalping logic - quick trades on small price movements
+    const priceChange = Math.abs(marketData.priceChangePercent);
+    return priceChange > 0.1 && priceChange < 0.5;
+  }
+
+  calculateOrderSize(balance: number, riskPercentage: number): number {
+    return balance * (riskPercentage / 100) * 10; // Higher leverage for scalping
+  }
+
+  getOrderType(): OrderType {
+    return 'MARKET'; // Quick execution
+  }
+}
+
+class SwingTradingStrategy implements ITradingStrategy {
+  shouldPlaceOrder(marketData: MarketData, position: Position): boolean {
+    // Swing trading logic - longer-term positions
+    const priceChange = Math.abs(marketData.priceChangePercent);
+    return priceChange > 2.0; // Larger price movements
+  }
+
+  calculateOrderSize(balance: number, riskPercentage: number): number {
+    return balance * (riskPercentage / 100) * 2; // Lower leverage
+  }
+
+  getOrderType(): OrderType {
+    return 'LIMIT'; // Better price execution
+  }
+}
+
+class TradingBot {
+  constructor(private strategy: ITradingStrategy) {}
+
+  async evaluateMarket(marketData: MarketData, position: Position, balance: number): Promise<void> {
+    if (this.strategy.shouldPlaceOrder(marketData, position)) {
+      const orderSize = this.strategy.calculateOrderSize(balance, 2); // 2% risk
+      const orderType = this.strategy.getOrderType();
+      
+      await this.placeOrder({
+        symbol: marketData.symbol,
+        side: 'BUY',
+        type: orderType,
+        quantity: orderSize
+      });
+    }
+  }
+
+  setStrategy(strategy: ITradingStrategy): void {
+    this.strategy = strategy;
+  }
+}
+
+// Usage
+const bot = new TradingBot(new ScalpingStrategy());
+// Later switch to swing trading
+bot.setStrategy(new SwingTradingStrategy());
+```
+
+## Observer Pattern
+
+### Market Data Observer
+```typescript
+// ✅ Good - Observer pattern for market data updates
+interface IMarketDataObserver {
+  onPriceUpdate(symbol: string, price: number): void;
+  onVolumeUpdate(symbol: string, volume: number): void;
+}
+
+class MarketDataSubject {
+  private observers: IMarketDataObserver[] = [];
+
+  subscribe(observer: IMarketDataObserver): void {
+    this.observers.push(observer);
+  }
+
+  unsubscribe(observer: IMarketDataObserver): void {
+    const index = this.observers.indexOf(observer);
+    if (index > -1) {
+      this.observers.splice(index, 1);
+    }
+  }
+
+  notifyPriceUpdate(symbol: string, price: number): void {
+    this.observers.forEach(observer => {
+      try {
+        observer.onPriceUpdate(symbol, price);
+      } catch (error) {
+        console.error('Error notifying observer:', error);
+      }
+    });
+  }
+
+  notifyVolumeUpdate(symbol: string, volume: number): void {
+    this.observers.forEach(observer => {
+      try {
+        observer.onVolumeUpdate(symbol, volume);
+      } catch (error) {
+        console.error('Error notifying observer:', error);
+      }
+    });
+  }
+}
+
+class TradingAlgorithm implements IMarketDataObserver {
+  onPriceUpdate(symbol: string, price: number): void {
+    console.log(`Price update for ${symbol}: ${price}`);
+    // Implement trading logic
+  }
+
+  onVolumeUpdate(symbol: string, volume: number): void {
+    console.log(`Volume update for ${symbol}: ${volume}`);
+    // Implement volume-based logic
+  }
+}
+
+class RiskManager implements IMarketDataObserver {
+  onPriceUpdate(symbol: string, price: number): void {
+    // Check if price movements trigger risk limits
+    this.evaluateRiskLimits(symbol, price);
+  }
+
+  onVolumeUpdate(symbol: string, volume: number): void {
+    // Monitor volume for unusual activity
+    this.monitorVolumeAnomaly(symbol, volume);
+  }
+}
+
+// Usage
+const marketData = new MarketDataSubject();
+const algorithm = new TradingAlgorithm();
+const riskManager = new RiskManager();
+
+marketData.subscribe(algorithm);
+marketData.subscribe(riskManager);
+
+// When market data arrives
+marketData.notifyPriceUpdate('BTCUSDT', 45000);
+```
+
+## Command Pattern
+
+### Order Command Pattern
+```typescript
+// ✅ Good - Command pattern for order operations
+interface ICommand {
+  execute(): Promise<void>;
+  undo(): Promise<void>;
+  canUndo(): boolean;
+}
+
+class PlaceOrderCommand implements ICommand {
+  private executedOrder?: Order;
+
+  constructor(
+    private orderService: IOrderService,
+    private orderData: OrderData
+  ) {}
+
+  async execute(): Promise<void> {
+    this.executedOrder = await this.orderService.placeOrder(this.orderData);
+  }
+
+  async undo(): Promise<void> {
+    if (this.executedOrder && this.canUndo()) {
+      await this.orderService.cancelOrder(this.executedOrder.orderId);
+    }
+  }
+
+  canUndo(): boolean {
+    return this.executedOrder?.status === 'NEW' || this.executedOrder?.status === 'PARTIALLY_FILLED';
+  }
+}
+
+class CancelOrderCommand implements ICommand {
+  private cancelledOrder?: Order;
+
+  constructor(
+    private orderService: IOrderService,
+    private orderId: string
+  ) {}
+
+  async execute(): Promise<void> {
+    this.cancelledOrder = await this.orderService.cancelOrder(this.orderId);
+  }
+
+  async undo(): Promise<void> {
+    // Cannot undo a cancellation - would need to place new order
+    throw new Error('Cannot undo order cancellation');
+  }
+
+  canUndo(): boolean {
+    return false;
+  }
+}
+
+class CommandInvoker {
+  private history: ICommand[] = [];
+
+  async executeCommand(command: ICommand): Promise<void> {
+    await command.execute();
+    this.history.push(command);
+  }
+
+  async undoLastCommand(): Promise<void> {
+    const lastCommand = this.history.pop();
+    if (lastCommand && lastCommand.canUndo()) {
+      await lastCommand.undo();
+    }
+  }
+}
+
+// Usage
+const invoker = new CommandInvoker();
+const placeOrderCmd = new PlaceOrderCommand(orderService, orderData);
+
+await invoker.executeCommand(placeOrderCmd);
+// Later, if needed
+await invoker.undoLastCommand();
+```
+
+## Best Practices Summary
+
+1. **Use layered architecture for clear separation of concerns**
+2. **Implement dependency injection for testability**
+3. **Apply event-driven patterns for loose coupling**
+4. **Use repository pattern for data access abstraction**
+5. **Implement factory pattern for object creation**
+6. **Apply strategy pattern for algorithmic variations**
+7. **Use observer pattern for reactive programming**
+8. **Implement command pattern for operation encapsulation**
+9. **Design for scalability and maintainability**
+10. **Follow SOLID principles in all architectural decisions**

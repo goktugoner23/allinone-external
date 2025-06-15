@@ -1,0 +1,784 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+# Error Handling & Logging Guidelines
+Best practices for managing errors and logging in Node.js/TypeScript applications, particularly for trading APIs and production environments.
+
+## Error Handling Patterns
+
+### Structured Error Classes
+```typescript
+// ✅ Good - Custom error hierarchy
+export abstract class AppError extends Error {
+  abstract readonly statusCode: number;
+  abstract readonly isOperational: boolean;
+
+  constructor(message: string, public readonly context?: Record<string, any>) {
+    super(message);
+    this.name = this.constructor.name;
+    Error.captureStackTrace(this, this.constructor);
+  }
+}
+
+export class ValidationError extends AppError {
+  readonly statusCode = 400;
+  readonly isOperational = true;
+
+  constructor(message: string, public readonly field?: string, context?: Record<string, any>) {
+    super(message, context);
+  }
+}
+
+export class AuthenticationError extends AppError {
+  readonly statusCode = 401;
+  readonly isOperational = true;
+}
+
+export class AuthorizationError extends AppError {
+  readonly statusCode = 403;
+  readonly isOperational = true;
+}
+
+export class NotFoundError extends AppError {
+  readonly statusCode = 404;
+  readonly isOperational = true;
+}
+
+export class ConflictError extends AppError {
+  readonly statusCode = 409;
+  readonly isOperational = true;
+}
+
+export class ExternalAPIError extends AppError {
+  readonly statusCode = 502;
+  readonly isOperational = true;
+
+  constructor(
+    message: string,
+    public readonly service: string,
+    public readonly originalError?: Error,
+    context?: Record<string, any>
+  ) {
+    super(message, context);
+  }
+}
+
+export class InternalServerError extends AppError {
+  readonly statusCode = 500;
+  readonly isOperational = false;
+}
+
+// Trading-specific errors
+export class InsufficientBalanceError extends AppError {
+  readonly statusCode = 400;
+  readonly isOperational = true;
+
+  constructor(
+    required: number,
+    available: number,
+    asset: string,
+    context?: Record<string, any>
+  ) {
+    super(
+      `Insufficient ${asset} balance. Required: ${required}, Available: ${available}`,
+      { required, available, asset, ...context }
+    );
+  }
+}
+
+export class OrderValidationError extends ValidationError {
+  constructor(
+    message: string,
+    public readonly orderData: any,
+    field?: string
+  ) {
+    super(message, field, { orderData });
+  }
+}
+
+export class MarketDataError extends ExternalAPIError {
+  constructor(
+    message: string,
+    public readonly symbol: string,
+    originalError?: Error
+  ) {
+    super(message, 'binance', originalError, { symbol });
+  }
+}
+```
+
+### Result Pattern for Error Handling
+```typescript
+// ✅ Good - Result pattern for type-safe error handling
+export type Result<T, E = Error> = 
+  | { success: true; data: T }
+  | { success: false; error: E };
+
+export class ResultUtils {
+  static success<T>(data: T): Result<T> {
+    return { success: true, data };
+  }
+
+  static failure<E>(error: E): Result<never, E> {
+    return { success: false, error };
+  }
+
+  static async fromPromise<T>(
+    promise: Promise<T>
+  ): Promise<Result<T, Error>> {
+    try {
+      const data = await promise;
+      return ResultUtils.success(data);
+    } catch (error) {
+      return ResultUtils.failure(error instanceof Error ? error : new Error(String(error)));
+    }
+  }
+}
+
+// Usage in services
+export class BinanceService {
+  async getAccountInfo(): Promise<Result<AccountInfo, ExternalAPIError>> {
+    try {
+      const account = await this.client.getAccountInformation();
+      return ResultUtils.success(account);
+    } catch (error) {
+      const apiError = new ExternalAPIError(
+        'Failed to fetch account information',
+        'binance',
+        error instanceof Error ? error : undefined,
+        { timestamp: Date.now() }
+      );
+      return ResultUtils.failure(apiError);
+    }
+  }
+
+  async placeOrder(orderData: OrderData): Promise<Result<Order, ValidationError | ExternalAPIError | InsufficientBalanceError>> {
+    // Validate order data
+    const validation = this.validateOrderData(orderData);
+    if (!validation.isValid) {
+      return ResultUtils.failure(
+        new OrderValidationError(validation.error, orderData)
+      );
+    }
+
+    // Check balance
+    const balanceCheck = await this.checkBalance(orderData);
+    if (!balanceCheck.success) {
+      return ResultUtils.failure(balanceCheck.error);
+    }
+
+    // Place order
+    try {
+      const order = await this.client.submitNewOrder(orderData);
+      return ResultUtils.success(order);
+    } catch (error) {
+      const apiError = new ExternalAPIError(
+        'Failed to place order',
+        'binance',
+        error instanceof Error ? error : undefined,
+        { orderData }
+      );
+      return ResultUtils.failure(apiError);
+    }
+  }
+
+  private async checkBalance(orderData: OrderData): Promise<Result<void, InsufficientBalanceError>> {
+    const account = await this.getAccountInfo();
+    if (!account.success) {
+      return ResultUtils.failure(
+        new InsufficientBalanceError(0, 0, 'USDT', { reason: 'Could not fetch account info' })
+      );
+    }
+
+    const usdtBalance = account.data.assets.find(a => a.asset === 'USDT');
+    if (!usdtBalance) {
+      return ResultUtils.failure(
+        new InsufficientBalanceError(0, 0, 'USDT', { reason: 'USDT balance not found' })
+      );
+    }
+
+    const required = this.calculateRequiredBalance(orderData);
+    const available = parseFloat(usdtBalance.availableBalance);
+
+    if (available < required) {
+      return ResultUtils.failure(
+        new InsufficientBalanceError(required, available, 'USDT', { orderData })
+      );
+    }
+
+    return ResultUtils.success(undefined);
+  }
+}
+```
+
+### Global Error Handler Middleware
+```typescript
+// ✅ Good - Comprehensive error handling middleware
+import { Request, Response, NextFunction } from 'express';
+import { AppError } from './errors';
+import { logger } from './logger';
+
+export interface ErrorResponse {
+  success: false;
+  error: string;
+  code?: string;
+  details?: any;
+  timestamp: number;
+  requestId?: string;
+}
+
+export const errorHandler = (
+  error: Error,
+  req: Request,
+  res: Response,
+  next: NextFunction
+): void => {
+  // Generate request ID for tracking
+  const requestId = req.headers['x-request-id'] as string || generateRequestId();
+
+  // Log error with context
+  const errorContext = {
+    requestId,
+    method: req.method,
+    url: req.url,
+    userAgent: req.get('User-Agent'),
+    ip: req.ip,
+    userId: (req as any).user?.id,
+    body: req.method !== 'GET' ? req.body : undefined,
+    query: req.query,
+    params: req.params,
+  };
+
+  if (error instanceof AppError) {
+    // Operational errors - log as warning
+    logger.warn('Operational error occurred', {
+      error: {
+        name: error.name,
+        message: error.message,
+        statusCode: error.statusCode,
+        context: error.context,
+        stack: error.stack,
+      },
+      request: errorContext,
+    });
+
+    const response: ErrorResponse = {
+      success: false,
+      error: error.message,
+      code: error.name,
+      details: error.context,
+      timestamp: Date.now(),
+      requestId,
+    };
+
+    res.status(error.statusCode).json(response);
+  } else {
+    // Programming errors - log as error
+    logger.error('Unexpected error occurred', {
+      error: {
+        name: error.name,
+        message: error.message,
+        stack: error.stack,
+      },
+      request: errorContext,
+    });
+
+    // Don't expose internal error details in production
+    const response: ErrorResponse = {
+      success: false,
+      error: process.env.NODE_ENV === 'production' 
+        ? 'Internal server error' 
+        : error.message,
+      code: 'INTERNAL_SERVER_ERROR',
+      timestamp: Date.now(),
+      requestId,
+    };
+
+    res.status(500).json(response);
+  }
+};
+
+// Async error wrapper
+export const asyncHandler = (
+  fn: (req: Request, res: Response, next: NextFunction) => Promise<any>
+) => {
+  return (req: Request, res: Response, next: NextFunction) => {
+    Promise.resolve(fn(req, res, next)).catch(next);
+  };
+};
+
+// Usage in controllers
+export const placeOrderController = asyncHandler(async (req: Request, res: Response) => {
+  const orderData = req.body;
+  
+  const result = await binanceService.placeOrder(orderData);
+  
+  if (!result.success) {
+    throw result.error; // Will be caught by asyncHandler and passed to errorHandler
+  }
+
+  res.status(201).json({
+    success: true,
+    data: result.data,
+    timestamp: Date.now(),
+  });
+});
+
+function generateRequestId(): string {
+  return `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+}
+```
+
+## Logging Best Practices
+
+### Structured Logging with Winston
+```typescript
+// ✅ Good - Comprehensive logging setup
+import winston from 'winston';
+import { ElasticsearchTransport } from 'winston-elasticsearch';
+
+// Custom log levels
+const customLevels = {
+  levels: {
+    error: 0,
+    warn: 1,
+    info: 2,
+    http: 3,
+    debug: 4,
+    trace: 5,
+  },
+  colors: {
+    error: 'red',
+    warn: 'yellow',
+    info: 'green',
+    http: 'magenta',
+    debug: 'blue',
+    trace: 'gray',
+  },
+};
+
+// Custom format for structured logging
+const logFormat = winston.format.combine(
+  winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss.SSS' }),
+  winston.format.errors({ stack: true }),
+  winston.format.json(),
+  winston.format.printf(({ timestamp, level, message, ...meta }) => {
+    return JSON.stringify({
+      timestamp,
+      level,
+      message,
+      ...meta,
+      environment: process.env.NODE_ENV,
+      service: 'trading-api',
+      version: process.env.APP_VERSION || '1.0.0',
+    });
+  })
+);
+
+// Create logger instance
+export const logger = winston.createLogger({
+  levels: customLevels.levels,
+  level: process.env.LOG_LEVEL || 'info',
+  format: logFormat,
+  defaultMeta: {
+    service: 'trading-api',
+    environment: process.env.NODE_ENV,
+  },
+  transports: [
+    // Console transport for development
+    new winston.transports.Console({
+      format: winston.format.combine(
+        winston.format.colorize({ all: true }),
+        winston.format.simple()
+      ),
+    }),
+
+    // File transports
+    new winston.transports.File({
+      filename: 'logs/error.log',
+      level: 'error',
+      maxsize: 10 * 1024 * 1024, // 10MB
+      maxFiles: 5,
+    }),
+    new winston.transports.File({
+      filename: 'logs/combined.log',
+      maxsize: 10 * 1024 * 1024, // 10MB
+      maxFiles: 10,
+    }),
+
+    // Elasticsearch transport for production
+    ...(process.env.NODE_ENV === 'production' && process.env.ELASTICSEARCH_URL ? [
+      new ElasticsearchTransport({
+        level: 'info',
+        clientOpts: {
+          node: process.env.ELASTICSEARCH_URL,
+        },
+        index: 'trading-api-logs',
+      }),
+    ] : []),
+  ],
+  exceptionHandlers: [
+    new winston.transports.File({ filename: 'logs/exceptions.log' }),
+  ],
+  rejectionHandlers: [
+    new winston.transports.File({ filename: 'logs/rejections.log' }),
+  ],
+});
+
+// Add colors to winston
+winston.addColors(customLevels.colors);
+
+// HTTP request logging middleware
+export const httpLogger = (req: Request, res: Response, next: NextFunction) => {
+  const start = Date.now();
+  
+  res.on('finish', () => {
+    const duration = Date.now() - start;
+    const logData = {
+      method: req.method,
+      url: req.url,
+      statusCode: res.statusCode,
+      duration,
+      userAgent: req.get('User-Agent'),
+      ip: req.ip,
+      userId: (req as any).user?.id,
+      requestId: req.headers['x-request-id'],
+    };
+
+    if (res.statusCode >= 400) {
+      logger.warn('HTTP request completed with error', logData);
+    } else {
+      logger.http('HTTP request completed', logData);
+    }
+  });
+
+  next();
+};
+```
+
+### Trading-Specific Logging
+```typescript
+// ✅ Good - Domain-specific logging utilities
+export class TradingLogger {
+  static logOrderPlaced(order: Order, userId: string): void {
+    logger.info('Order placed', {
+      event: 'ORDER_PLACED',
+      userId,
+      orderId: order.orderId,
+      symbol: order.symbol,
+      side: order.side,
+      type: order.type,
+      quantity: order.quantity,
+      price: order.price,
+      timestamp: Date.now(),
+    });
+  }
+
+  static logOrderFilled(order: Order, fillPrice: number, fillQuantity: number): void {
+    logger.info('Order filled', {
+      event: 'ORDER_FILLED',
+      orderId: order.orderId,
+      symbol: order.symbol,
+      fillPrice,
+      fillQuantity,
+      totalFilled: order.executedQty,
+      remainingQuantity: order.origQty - order.executedQty,
+      timestamp: Date.now(),
+    });
+  }
+
+  static logPositionUpdate(position: Position, userId: string): void {
+    logger.info('Position updated', {
+      event: 'POSITION_UPDATE',
+      userId,
+      symbol: position.symbol,
+      positionAmount: position.positionAmount,
+      entryPrice: position.entryPrice,
+      unrealizedProfit: position.unrealizedProfit,
+      timestamp: Date.now(),
+    });
+  }
+
+  static logBalanceChange(
+    userId: string,
+    asset: string,
+    oldBalance: number,
+    newBalance: number,
+    reason: string
+  ): void {
+    logger.info('Balance changed', {
+      event: 'BALANCE_CHANGE',
+      userId,
+      asset,
+      oldBalance,
+      newBalance,
+      change: newBalance - oldBalance,
+      reason,
+      timestamp: Date.now(),
+    });
+  }
+
+  static logAPIError(
+    service: string,
+    operation: string,
+    error: Error,
+    context?: Record<string, any>
+  ): void {
+    logger.error('External API error', {
+      event: 'API_ERROR',
+      service,
+      operation,
+      error: {
+        name: error.name,
+        message: error.message,
+        stack: error.stack,
+      },
+      context,
+      timestamp: Date.now(),
+    });
+  }
+
+  static logSecurityEvent(
+    event: string,
+    userId: string,
+    ip: string,
+    details?: Record<string, any>
+  ): void {
+    logger.warn('Security event', {
+      event: 'SECURITY_EVENT',
+      securityEvent: event,
+      userId,
+      ip,
+      details,
+      timestamp: Date.now(),
+    });
+  }
+}
+
+// Usage in services
+export class BinanceService {
+  async placeOrder(orderData: OrderData, userId: string): Promise<Result<Order, AppError>> {
+    try {
+      const order = await this.client.submitNewOrder(orderData);
+      
+      // Log successful order placement
+      TradingLogger.logOrderPlaced(order, userId);
+      
+      return ResultUtils.success(order);
+    } catch (error) {
+      // Log API error
+      TradingLogger.logAPIError('binance', 'placeOrder', error as Error, { orderData, userId });
+      
+      return ResultUtils.failure(
+        new ExternalAPIError('Failed to place order', 'binance', error as Error)
+      );
+    }
+  }
+}
+```
+
+### Performance and Monitoring Logs
+```typescript
+// ✅ Good - Performance monitoring
+export class PerformanceLogger {
+  private static timers = new Map<string, number>();
+
+  static startTimer(operation: string, context?: Record<string, any>): string {
+    const timerId = `${operation}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    this.timers.set(timerId, Date.now());
+    
+    logger.debug('Operation started', {
+      event: 'OPERATION_START',
+      operation,
+      timerId,
+      context,
+    });
+    
+    return timerId;
+  }
+
+  static endTimer(timerId: string, context?: Record<string, any>): void {
+    const startTime = this.timers.get(timerId);
+    if (!startTime) {
+      logger.warn('Timer not found', { timerId });
+      return;
+    }
+
+    const duration = Date.now() - startTime;
+    this.timers.delete(timerId);
+
+    logger.info('Operation completed', {
+      event: 'OPERATION_END',
+      timerId,
+      duration,
+      context,
+    });
+
+    // Log slow operations
+    if (duration > 5000) { // 5 seconds
+      logger.warn('Slow operation detected', {
+        event: 'SLOW_OPERATION',
+        timerId,
+        duration,
+        context,
+      });
+    }
+  }
+
+  static async measureAsync<T>(
+    operation: string,
+    fn: () => Promise<T>,
+    context?: Record<string, any>
+  ): Promise<T> {
+    const timerId = this.startTimer(operation, context);
+    try {
+      const result = await fn();
+      this.endTimer(timerId, { ...context, success: true });
+      return result;
+    } catch (error) {
+      this.endTimer(timerId, { ...context, success: false, error: (error as Error).message });
+      throw error;
+    }
+  }
+}
+
+// Usage
+export class BinanceService {
+  async getAccountInfo(): Promise<Result<AccountInfo, ExternalAPIError>> {
+    return PerformanceLogger.measureAsync(
+      'binance_get_account_info',
+      async () => {
+        const account = await this.client.getAccountInformation();
+        return ResultUtils.success(account);
+      },
+      { service: 'binance' }
+    );
+  }
+}
+```
+
+## Error Recovery Strategies
+
+### Circuit Breaker Pattern
+```typescript
+// ✅ Good - Circuit breaker for external services
+export class CircuitBreaker {
+  private failures = 0;
+  private lastFailureTime = 0;
+  private state: 'CLOSED' | 'OPEN' | 'HALF_OPEN' = 'CLOSED';
+
+  constructor(
+    private threshold: number = 5,
+    private timeout: number = 60000, // 1 minute
+    private monitoringPeriod: number = 10000 // 10 seconds
+  ) {}
+
+  async execute<T>(operation: () => Promise<T>, fallback?: () => Promise<T>): Promise<T> {
+    if (this.state === 'OPEN') {
+      if (Date.now() - this.lastFailureTime > this.timeout) {
+        this.state = 'HALF_OPEN';
+        logger.info('Circuit breaker transitioning to HALF_OPEN');
+      } else {
+        logger.warn('Circuit breaker is OPEN, using fallback');
+        if (fallback) {
+          return await fallback();
+        }
+        throw new ExternalAPIError('Service unavailable - circuit breaker is OPEN', 'external');
+      }
+    }
+
+    try {
+      const result = await operation();
+      this.onSuccess();
+      return result;
+    } catch (error) {
+      this.onFailure();
+      
+      if (fallback && this.state === 'OPEN') {
+        logger.info('Using fallback due to circuit breaker');
+        return await fallback();
+      }
+      
+      throw error;
+    }
+  }
+
+  private onSuccess(): void {
+    this.failures = 0;
+    if (this.state === 'HALF_OPEN') {
+      this.state = 'CLOSED';
+      logger.info('Circuit breaker closed after successful operation');
+    }
+  }
+
+  private onFailure(): void {
+    this.failures++;
+    this.lastFailureTime = Date.now();
+
+    logger.warn('Circuit breaker recorded failure', {
+      failures: this.failures,
+      threshold: this.threshold,
+      state: this.state,
+    });
+
+    if (this.failures >= this.threshold) {
+      this.state = 'OPEN';
+      logger.error('Circuit breaker opened due to repeated failures');
+    }
+  }
+
+  getState(): { state: string; failures: number; lastFailureTime: number } {
+    return {
+      state: this.state,
+      failures: this.failures,
+      lastFailureTime: this.lastFailureTime,
+    };
+  }
+}
+
+// Usage with Binance service
+export class BinanceService {
+  private circuitBreaker = new CircuitBreaker(5, 60000);
+
+  async getAccountInfo(): Promise<Result<AccountInfo, ExternalAPIError>> {
+    try {
+      const account = await this.circuitBreaker.execute(
+        () => this.client.getAccountInformation(),
+        () => this.getCachedAccountInfo() // Fallback to cache
+      );
+      
+      return ResultUtils.success(account);
+    } catch (error) {
+      return ResultUtils.failure(
+        new ExternalAPIError('Failed to get account info', 'binance', error as Error)
+      );
+    }
+  }
+
+  private async getCachedAccountInfo(): Promise<AccountInfo> {
+    // Return cached account info as fallback
+    const cached = await this.cache.get('account_info');
+    if (cached) {
+      logger.info('Using cached account info as fallback');
+      return cached;
+    }
+    
+    throw new Error('No cached account info available');
+  }
+}
+```
+
+## Best Practices Summary
+
+1. **Use structured error classes with proper inheritance**
+2. **Implement Result pattern for type-safe error handling**
+3. **Create comprehensive global error handler middleware**
+4. **Use structured logging with proper context**
+5. **Implement domain-specific logging utilities**
+6. **Monitor performance and log slow operations**
+7. **Use circuit breakers for external service calls**
+8. **Provide meaningful error messages and codes**
+9. **Log security events and suspicious activities**
+10. **Implement proper error recovery strategies**

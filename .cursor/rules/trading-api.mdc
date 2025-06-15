@@ -1,0 +1,532 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# Trading API Guidelines
+
+Best practices for developing financial trading APIs, focusing on order management, risk controls, and data integrity.
+
+## Order Management
+
+### Order Validation
+```typescript
+// ✅ Good - Comprehensive order validation
+interface OrderValidationRules {
+  minQuantity: number;
+  maxQuantity: number;
+  tickSize: number;
+  stepSize: number;
+  minNotional: number;
+  maxNotional: number;
+}
+
+class OrderValidator {
+  static validateOrder(order: OrderData, rules: OrderValidationRules): ValidationResult {
+    const errors: string[] = [];
+
+    // Quantity validation
+    if (order.quantity < rules.minQuantity) {
+      errors.push(`Quantity ${order.quantity} below minimum ${rules.minQuantity}`);
+    }
+    
+    if (order.quantity > rules.maxQuantity) {
+      errors.push(`Quantity ${order.quantity} exceeds maximum ${rules.maxQuantity}`);
+    }
+
+    // Step size validation
+    if (order.quantity % rules.stepSize !== 0) {
+      errors.push(`Quantity ${order.quantity} not aligned with step size ${rules.stepSize}`);
+    }
+
+    // Price validation for limit orders
+    if (order.type === 'LIMIT' && order.price) {
+      if (order.price % rules.tickSize !== 0) {
+        errors.push(`Price ${order.price} not aligned with tick size ${rules.tickSize}`);
+      }
+    }
+
+    // Notional value validation
+    const notional = order.quantity * (order.price || 0);
+    if (notional < rules.minNotional) {
+      errors.push(`Notional value ${notional} below minimum ${rules.minNotional}`);
+    }
+
+    return {
+      isValid: errors.length === 0,
+      errors
+    };
+  }
+}
+```
+
+### Order State Management
+```typescript
+// ✅ Good - Clear order state transitions
+enum OrderStatus {
+  PENDING = 'PENDING',
+  NEW = 'NEW',
+  PARTIALLY_FILLED = 'PARTIALLY_FILLED',
+  FILLED = 'FILLED',
+  CANCELED = 'CANCELED',
+  REJECTED = 'REJECTED',
+  EXPIRED = 'EXPIRED'
+}
+
+class OrderStateMachine {
+  private static validTransitions: Record<OrderStatus, OrderStatus[]> = {
+    [OrderStatus.PENDING]: [OrderStatus.NEW, OrderStatus.REJECTED],
+    [OrderStatus.NEW]: [OrderStatus.PARTIALLY_FILLED, OrderStatus.FILLED, OrderStatus.CANCELED],
+    [OrderStatus.PARTIALLY_FILLED]: [OrderStatus.FILLED, OrderStatus.CANCELED],
+    [OrderStatus.FILLED]: [],
+    [OrderStatus.CANCELED]: [],
+    [OrderStatus.REJECTED]: [],
+    [OrderStatus.EXPIRED]: []
+  };
+
+  static canTransition(from: OrderStatus, to: OrderStatus): boolean {
+    return this.validTransitions[from]?.includes(to) || false;
+  }
+
+  static validateTransition(order: Order, newStatus: OrderStatus): void {
+    if (!this.canTransition(order.status, newStatus)) {
+      throw new Error(
+        `Invalid status transition from ${order.status} to ${newStatus} for order ${order.orderId}`
+      );
+    }
+  }
+}
+```
+
+## Risk Management
+
+### Position Size Limits
+```typescript
+// ✅ Good - Position size and exposure controls
+interface RiskLimits {
+  maxPositionSize: number;
+  maxNotionalExposure: number;
+  maxOrderSize: number;
+  maxDailyVolume: number;
+}
+
+class RiskManager {
+  async validateOrderRisk(
+    order: OrderData, 
+    currentPosition: Position, 
+    limits: RiskLimits
+  ): Promise<RiskValidationResult> {
+    const errors: string[] = [];
+
+    // Check order size limits
+    if (order.quantity > limits.maxOrderSize) {
+      errors.push(`Order size ${order.quantity} exceeds maximum ${limits.maxOrderSize}`);
+    }
+
+    // Calculate new position size after order
+    const newPositionSize = this.calculateNewPositionSize(order, currentPosition);
+    if (Math.abs(newPositionSize) > limits.maxPositionSize) {
+      errors.push(`New position size ${newPositionSize} would exceed limit ${limits.maxPositionSize}`);
+    }
+
+    // Check notional exposure
+    const notionalExposure = Math.abs(newPositionSize * order.price);
+    if (notionalExposure > limits.maxNotionalExposure) {
+      errors.push(`Notional exposure ${notionalExposure} would exceed limit ${limits.maxNotionalExposure}`);
+    }
+
+    // Check daily volume limits
+    const dailyVolume = await this.getDailyVolume(order.symbol);
+    const orderNotional = order.quantity * order.price;
+    if (dailyVolume + orderNotional > limits.maxDailyVolume) {
+      errors.push(`Daily volume limit would be exceeded`);
+    }
+
+    return {
+      isValid: errors.length === 0,
+      errors,
+      riskScore: this.calculateRiskScore(order, currentPosition)
+    };
+  }
+
+  private calculateNewPositionSize(order: OrderData, position: Position): number {
+    const currentSize = position.positionAmount;
+    const orderSize = order.side === 'BUY' ? order.quantity : -order.quantity;
+    return currentSize + orderSize;
+  }
+}
+```
+
+### Balance Validation
+```typescript
+// ✅ Good - Comprehensive balance checks
+class BalanceManager {
+  async validateSufficientBalance(
+    order: OrderData, 
+    account: AccountInfo,
+    contractType: 'USDM' | 'COINM' | 'SPOT'
+  ): Promise<BalanceValidationResult> {
+    switch (contractType) {
+      case 'USDM':
+        return this.validateUSDMBalance(order, account);
+      case 'COINM':
+        return this.validateCOINMBalance(order, account);
+      case 'SPOT':
+        return this.validateSpotBalance(order, account);
+      default:
+        throw new Error(`Unsupported contract type: ${contractType}`);
+    }
+  }
+
+  private async validateUSDMBalance(
+    order: OrderData, 
+    account: AccountInfo
+  ): Promise<BalanceValidationResult> {
+    const usdtBalance = account.assets.find(a => a.asset === 'USDT');
+    if (!usdtBalance) {
+      return { isValid: false, error: 'USDT balance not found' };
+    }
+
+    const requiredMargin = this.calculateRequiredMargin(order);
+    const availableBalance = usdtBalance.walletBalance - usdtBalance.initialMargin;
+
+    if (availableBalance < requiredMargin) {
+      return {
+        isValid: false,
+        error: `Insufficient balance. Required: ${requiredMargin}, Available: ${availableBalance}`
+      };
+    }
+
+    return { isValid: true };
+  }
+
+  private calculateRequiredMargin(order: OrderData): number {
+    // Simplified margin calculation
+    const notional = order.quantity * (order.price || 0);
+    const leverage = 10; // This should come from account settings
+    return notional / leverage;
+  }
+}
+```
+
+## Price and Market Data
+
+### Price Precision Handling
+```typescript
+// ✅ Good - Precise decimal handling for financial data
+import { Decimal } from 'decimal.js';
+
+class PriceUtils {
+  static formatPrice(price: number | string, precision: number): string {
+    const decimal = new Decimal(price);
+    return decimal.toFixed(precision);
+  }
+
+  static calculatePnL(
+    entryPrice: number | string,
+    currentPrice: number | string,
+    quantity: number | string,
+    side: 'LONG' | 'SHORT'
+  ): string {
+    const entry = new Decimal(entryPrice);
+    const current = new Decimal(currentPrice);
+    const qty = new Decimal(quantity);
+
+    const priceDiff = side === 'LONG' 
+      ? current.minus(entry)
+      : entry.minus(current);
+
+    return priceDiff.times(qty).toFixed(8);
+  }
+
+  static calculatePercentage(
+    entryPrice: number | string,
+    currentPrice: number | string,
+    side: 'LONG' | 'SHORT'
+  ): string {
+    const entry = new Decimal(entryPrice);
+    const current = new Decimal(currentPrice);
+
+    const priceDiff = side === 'LONG'
+      ? current.minus(entry)
+      : entry.minus(current);
+
+    return priceDiff.dividedBy(entry).times(100).toFixed(4);
+  }
+}
+```
+
+### Market Data Validation
+```typescript
+// ✅ Good - Validate market data integrity
+interface MarketDataValidator {
+  validateTicker(ticker: TickerData): ValidationResult;
+  validateOrderBook(orderBook: OrderBookData): ValidationResult;
+  validateTrade(trade: TradeData): ValidationResult;
+}
+
+class BinanceMarketDataValidator implements MarketDataValidator {
+  validateTicker(ticker: TickerData): ValidationResult {
+    const errors: string[] = [];
+
+    // Price validation
+    if (ticker.price <= 0) {
+      errors.push('Price must be positive');
+    }
+
+    // Volume validation
+    if (ticker.volume < 0) {
+      errors.push('Volume cannot be negative');
+    }
+
+    // Timestamp validation
+    const now = Date.now();
+    const tickerAge = now - ticker.timestamp;
+    if (tickerAge > 60000) { // 1 minute
+      errors.push('Ticker data is stale');
+    }
+
+    return {
+      isValid: errors.length === 0,
+      errors
+    };
+  }
+
+  validateOrderBook(orderBook: OrderBookData): ValidationResult {
+    const errors: string[] = [];
+
+    // Check bid/ask spread
+    const bestBid = orderBook.bids[0]?.[0];
+    const bestAsk = orderBook.asks[0]?.[0];
+
+    if (bestBid && bestAsk && bestBid >= bestAsk) {
+      errors.push('Invalid spread: bid >= ask');
+    }
+
+    // Validate price levels are sorted
+    for (let i = 1; i < orderBook.bids.length; i++) {
+      if (orderBook.bids[i][0] > orderBook.bids[i-1][0]) {
+        errors.push('Bids not sorted in descending order');
+        break;
+      }
+    }
+
+    for (let i = 1; i < orderBook.asks.length; i++) {
+      if (orderBook.asks[i][0] < orderBook.asks[i-1][0]) {
+        errors.push('Asks not sorted in ascending order');
+        break;
+      }
+    }
+
+    return {
+      isValid: errors.length === 0,
+      errors
+    };
+  }
+}
+```
+
+## Transaction Integrity
+
+### Idempotency
+```typescript
+// ✅ Good - Implement idempotency for critical operations
+class IdempotentOrderService {
+  private orderCache = new Map<string, Order>();
+
+  async placeOrder(orderData: OrderData, idempotencyKey: string): Promise<ApiResponse<Order>> {
+    // Check if order already exists
+    const existingOrder = this.orderCache.get(idempotencyKey);
+    if (existingOrder) {
+      return {
+        success: true,
+        data: existingOrder,
+        message: 'Order already exists (idempotent)'
+      };
+    }
+
+    try {
+      const order = await this.executeOrder(orderData);
+      this.orderCache.set(idempotencyKey, order);
+      
+      // Set expiration for cache entry
+      setTimeout(() => {
+        this.orderCache.delete(idempotencyKey);
+      }, 24 * 60 * 60 * 1000); // 24 hours
+
+      return {
+        success: true,
+        data: order
+      };
+    } catch (error) {
+      throw error;
+    }
+  }
+}
+```
+
+### Audit Trail
+```typescript
+// ✅ Good - Comprehensive audit logging
+interface AuditEvent {
+  eventId: string;
+  timestamp: number;
+  userId: string;
+  action: string;
+  resource: string;
+  resourceId: string;
+  oldValue?: any;
+  newValue?: any;
+  metadata?: Record<string, any>;
+}
+
+class AuditLogger {
+  async logOrderEvent(
+    action: 'CREATE' | 'UPDATE' | 'CANCEL',
+    order: Order,
+    userId: string,
+    metadata?: Record<string, any>
+  ): Promise<void> {
+    const auditEvent: AuditEvent = {
+      eventId: this.generateEventId(),
+      timestamp: Date.now(),
+      userId,
+      action,
+      resource: 'ORDER',
+      resourceId: order.orderId.toString(),
+      newValue: order,
+      metadata
+    };
+
+    await this.persistAuditEvent(auditEvent);
+  }
+
+  async logBalanceChange(
+    userId: string,
+    asset: string,
+    oldBalance: number,
+    newBalance: number,
+    reason: string
+  ): Promise<void> {
+    const auditEvent: AuditEvent = {
+      eventId: this.generateEventId(),
+      timestamp: Date.now(),
+      userId,
+      action: 'BALANCE_CHANGE',
+      resource: 'BALANCE',
+      resourceId: `${userId}_${asset}`,
+      oldValue: { balance: oldBalance },
+      newValue: { balance: newBalance },
+      metadata: { reason }
+    };
+
+    await this.persistAuditEvent(auditEvent);
+  }
+}
+```
+
+## Performance Optimization
+
+### Caching Strategies
+```typescript
+// ✅ Good - Strategic caching for trading data
+class TradingDataCache {
+  private priceCache = new Map<string, { price: number; timestamp: number }>();
+  private positionCache = new Map<string, { positions: Position[]; timestamp: number }>();
+
+  async getPrice(symbol: string): Promise<number> {
+    const cached = this.priceCache.get(symbol);
+    const now = Date.now();
+
+    // Use cached price if less than 1 second old
+    if (cached && (now - cached.timestamp) < 1000) {
+      return cached.price;
+    }
+
+    // Fetch fresh price
+    const price = await this.fetchPriceFromAPI(symbol);
+    this.priceCache.set(symbol, { price, timestamp: now });
+
+    return price;
+  }
+
+  async getPositions(userId: string): Promise<Position[]> {
+    const cached = this.positionCache.get(userId);
+    const now = Date.now();
+
+    // Use cached positions if less than 5 seconds old
+    if (cached && (now - cached.timestamp) < 5000) {
+      return cached.positions;
+    }
+
+    // Fetch fresh positions
+    const positions = await this.fetchPositionsFromAPI(userId);
+    this.positionCache.set(userId, { positions, timestamp: now });
+
+    return positions;
+  }
+}
+```
+
+## Error Recovery
+
+### Circuit Breaker Pattern
+```typescript
+// ✅ Good - Circuit breaker for external API calls
+class CircuitBreaker {
+  private failures = 0;
+  private lastFailureTime = 0;
+  private state: 'CLOSED' | 'OPEN' | 'HALF_OPEN' = 'CLOSED';
+
+  constructor(
+    private threshold: number = 5,
+    private timeout: number = 60000 // 1 minute
+  ) {}
+
+  async execute<T>(operation: () => Promise<T>): Promise<T> {
+    if (this.state === 'OPEN') {
+      if (Date.now() - this.lastFailureTime > this.timeout) {
+        this.state = 'HALF_OPEN';
+      } else {
+        throw new Error('Circuit breaker is OPEN');
+      }
+    }
+
+    try {
+      const result = await operation();
+      this.onSuccess();
+      return result;
+    } catch (error) {
+      this.onFailure();
+      throw error;
+    }
+  }
+
+  private onSuccess(): void {
+    this.failures = 0;
+    this.state = 'CLOSED';
+  }
+
+  private onFailure(): void {
+    this.failures++;
+    this.lastFailureTime = Date.now();
+
+    if (this.failures >= this.threshold) {
+      this.state = 'OPEN';
+    }
+  }
+}
+```
+
+## Best Practices Summary
+
+1. **Implement comprehensive order validation**
+2. **Use precise decimal arithmetic for financial calculations**
+3. **Implement proper risk management controls**
+4. **Validate market data integrity**
+5. **Ensure transaction idempotency**
+6. **Maintain comprehensive audit trails**
+7. **Use circuit breakers for external API calls**
+8. **Implement strategic caching for performance**
+9. **Handle order state transitions properly**
+10. **Validate sufficient balance before order execution**

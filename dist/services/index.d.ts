@@ -1,17 +1,15 @@
 import BinanceService from './binance';
 declare class ServiceManager {
+    private static instance;
     private binanceService;
     private isInitialized;
-    constructor();
+    private constructor();
+    static getInstance(): ServiceManager;
     initialize(): Promise<void>;
     getBinanceService(): BinanceService;
     getStatus(): {
         isInitialized: boolean;
-        binance: {
-            isConnected: boolean;
-            clientCount: number;
-            isInitialized: boolean;
-        };
+        binance: import("./binance").ConnectionStatus;
     };
     shutdown(): Promise<void>;
 }

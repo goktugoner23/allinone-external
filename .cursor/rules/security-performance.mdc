@@ -1,0 +1,683 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+# Security & Performance Guidelines
+
+Security best practices and performance optimization for Node.js/TypeScript backend applications, particularly for trading APIs and financial services.
+
+## Security Best Practices
+
+### Environment Variables & Secrets Management
+```typescript
+// ✅ Good - Secure environment variable handling
+// .env (never commit to git)
+BINANCE_API_KEY=your_api_key_here
+BINANCE_API_SECRET=your_api_secret_here
+JWT_SECRET=your_jwt_secret_here
+DATABASE_URL=postgresql://user:pass@localhost:5432/db
+
+// src/config/environment.ts
+interface Config {
+  binance: {
+    apiKey: string;
+    apiSecret: string;
+  };
+  jwt: {
+    secret: string;
+    expiresIn: string;
+  };
+  database: {
+    url: string;
+  };
+}
+
+function validateEnvironment(): Config {
+  const requiredVars = [
+    'BINANCE_API_KEY',
+    'BINANCE_API_SECRET',
+    'JWT_SECRET',
+    'DATABASE_URL'
+  ];
+
+  const missing = requiredVars.filter(key => !process.env[key]);
+  if (missing.length > 0) {
+    throw new Error(`Missing required environment variables: ${missing.join(', ')}`);
+  }
+
+  return {
+    binance: {
+      apiKey: process.env.BINANCE_API_KEY!,
+      apiSecret: process.env.BINANCE_API_SECRET!,
+    },
+    jwt: {
+      secret: process.env.JWT_SECRET!,
+      expiresIn: process.env.JWT_EXPIRES_IN || '24h',
+    },
+    database: {
+      url: process.env.DATABASE_URL!,
+    },
+  };
+}
+
+export const config = validateEnvironment();
+
+// ❌ Avoid - Hardcoded secrets
+const config = {
+  binance: {
+    apiKey: 'hardcoded_api_key', // Never do this!
+    apiSecret: 'hardcoded_secret',
+  }
+};
+```
+
+### Input Validation & Sanitization
+```typescript
+// ✅ Good - Comprehensive input validation
+import Joi from 'joi';
+import { Request, Response, NextFunction } from 'express';
+
+// Order validation schema
+const orderSchema = Joi.object({
+  symbol: Joi.string()
+    .pattern(/^[A-Z]{3,10}USDT?$/)
+    .required()
+    .messages({
+      'string.pattern.base': 'Symbol must be a valid trading pair'
+    }),
+  side: Joi.string()
+    .valid('BUY', 'SELL')
+    .required(),
+  type: Joi.string()
+    .valid('MARKET', 'LIMIT', 'STOP_MARKET', 'STOP_LIMIT')
+    .required(),
+  quantity: Joi.number()
+    .positive()
+    .precision(8)
+    .required()
+    .messages({
+      'number.positive': 'Quantity must be positive'
+    }),
+  price: Joi.number()
+    .positive()
+    .precision(8)
+    .when('type', {
+      is: Joi.string().valid('LIMIT', 'STOP_LIMIT'),
+      then: Joi.required(),
+      otherwise: Joi.optional()
+    }),
+  timeInForce: Joi.string()
+    .valid('GTC', 'IOC', 'FOK')
+    .optional()
+});
+
+// Validation middleware
+export const validateOrder = (req: Request, res: Response, next: NextFunction) => {
+  const { error, value } = orderSchema.validate(req.body, {
+    abortEarly: false,
+    stripUnknown: true
+  });
+
+  if (error) {
+    return res.status(400).json({
+      success: false,
+      error: 'Validation failed',
+      details: error.details.map(detail => ({
+        field: detail.path.join('.'),
+        message: detail.message
+      }))
+    });
+  }
+
+  req.body = value; // Use sanitized data
+  next();
+};
+
+// SQL injection prevention
+import { Pool } from 'pg';
+
+class DatabaseService {
+  private pool: Pool;
+
+  constructor() {
+    this.pool = new Pool({
+      connectionString: config.database.url,
+    });
+  }
+
+  // ✅ Good - Parameterized queries
+  async getUserOrders(userId: string, symbol?: string): Promise<Order[]> {
+    let query = 'SELECT * FROM orders WHERE user_id = $1';
+    const params: any[] = [userId];
+
+    if (symbol) {
+      query += ' AND symbol = $2';
+      params.push(symbol);
+    }
+
+    const result = await this.pool.query(query, params);
+    return result.rows;
+  }
+
+  // ❌ Avoid - String concatenation (SQL injection risk)
+  async getUserOrdersUnsafe(userId: string, symbol?: string): Promise<Order[]> {
+    const query = `SELECT * FROM orders WHERE user_id = '${userId}'`; // Dangerous!
+    const result = await this.pool.query(query);
+    return result.rows;
+  }
+}
+```
+
+### Authentication & Authorization
+```typescript
+// ✅ Good - JWT-based authentication
+import jwt from 'jsonwebtoken';
+import bcrypt from 'bcrypt';
+import { Request, Response, NextFunction } from 'express';
+
+interface AuthenticatedRequest extends Request {
+  user?: {
+    id: string;
+    email: string;
+    role: string;
+  };
+}
+
+// Password hashing
+export class AuthService {
+  private static readonly SALT_ROUNDS = 12;
+
+  static async hashPassword(password: string): Promise<string> {
+    return bcrypt.hash(password, this.SALT_ROUNDS);
+  }
+
+  static async verifyPassword(password: string, hash: string): Promise<boolean> {
+    return bcrypt.compare(password, hash);
+  }
+
+  static generateToken(payload: object): string {
+    return jwt.sign(payload, config.jwt.secret, {
+      expiresIn: config.jwt.expiresIn,
+      issuer: 'trading-api',
+      audience: 'trading-client'
+    });
+  }
+
+  static verifyToken(token: string): any {
+    return jwt.verify(token, config.jwt.secret, {
+      issuer: 'trading-api',
+      audience: 'trading-client'
+    });
+  }
+}
+
+// Authentication middleware
+export const authenticateToken = (
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+) => {
+  const authHeader = req.headers.authorization;
+  const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
+
+  if (!token) {
+    return res.status(401).json({
+      success: false,
+      error: 'Access token required'
+    });
+  }
+
+  try {
+    const decoded = AuthService.verifyToken(token);
+    req.user = decoded;
+    next();
+  } catch (error) {
+    return res.status(401).json({
+      success: false,
+      error: 'Invalid or expired token'
+    });
+  }
+};
+
+// Role-based authorization
+export const requireRole = (roles: string[]) => {
+  return (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        error: 'Authentication required'
+      });
+    }
+
+    if (!roles.includes(req.user.role)) {
+      return res.status(403).json({
+        success: false,
+        error: 'Insufficient permissions'
+      });
+    }
+
+    next();
+  };
+};
+
+// Usage
+app.post('/api/admin/orders', 
+  authenticateToken, 
+  requireRole(['admin', 'trader']), 
+  placeOrderHandler
+);
+```
+
+### Rate Limiting & DDoS Protection
+```typescript
+// ✅ Good - Comprehensive rate limiting
+import rateLimit from 'express-rate-limit';
+import slowDown from 'express-slow-down';
+import { RedisStore } from 'rate-limit-redis';
+import Redis from 'ioredis';
+
+const redis = new Redis(process.env.REDIS_URL);
+
+// General API rate limiting
+const generalLimiter = rateLimit({
+  store: new RedisStore({
+    sendCommand: (...args: string[]) => redis.call(...args),
+  }),
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 1000, // 1000 requests per window
+  message: {
+    success: false,
+    error: 'Too many requests, please try again later'
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// Trading endpoints - more restrictive
+const tradingLimiter = rateLimit({
+  store: new RedisStore({
+    sendCommand: (...args: string[]) => redis.call(...args),
+  }),
+  windowMs: 1 * 60 * 1000, // 1 minute
+  max: 100, // 100 requests per minute
+  message: {
+    success: false,
+    error: 'Trading rate limit exceeded'
+  },
+  keyGenerator: (req) => {
+    // Rate limit per user for authenticated endpoints
+    return req.user?.id || req.ip;
+  }
+});
+
+// Progressive delay for repeated requests
+const speedLimiter = slowDown({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  delayAfter: 100, // Allow 100 requests per window without delay
+  delayMs: 500, // Add 500ms delay per request after delayAfter
+  maxDelayMs: 20000, // Maximum delay of 20 seconds
+});
+
+// Apply rate limiting
+app.use('/api/', generalLimiter);
+app.use('/api/', speedLimiter);
+app.use('/api/orders', tradingLimiter);
+app.use('/api/positions', tradingLimiter);
+
+// IP-based blocking for suspicious activity
+class SecurityService {
+  private static suspiciousIPs = new Set<string>();
+  private static failedAttempts = new Map<string, number>();
+
+  static blockSuspiciousIP(ip: string): void {
+    this.suspiciousIPs.add(ip);
+    console.warn(`Blocked suspicious IP: ${ip}`);
+  }
+
+  static recordFailedAttempt(ip: string): void {
+    const attempts = this.failedAttempts.get(ip) || 0;
+    this.failedAttempts.set(ip, attempts + 1);
+
+    if (attempts >= 10) {
+      this.blockSuspiciousIP(ip);
+    }
+  }
+
+  static isBlocked(ip: string): boolean {
+    return this.suspiciousIPs.has(ip);
+  }
+}
+
+// Security middleware
+export const securityCheck = (req: Request, res: Response, next: NextFunction) => {
+  const clientIP = req.ip || req.connection.remoteAddress || 'unknown';
+
+  if (SecurityService.isBlocked(clientIP)) {
+    return res.status(403).json({
+      success: false,
+      error: 'Access denied'
+    });
+  }
+
+  next();
+};
+```
+
+## Performance Optimization
+
+### Caching Strategies
+```typescript
+// ✅ Good - Multi-level caching
+import Redis from 'ioredis';
+import NodeCache from 'node-cache';
+
+class CacheService {
+  private redis: Redis;
+  private memoryCache: NodeCache;
+
+  constructor() {
+    this.redis = new Redis(process.env.REDIS_URL);
+    this.memoryCache = new NodeCache({
+      stdTTL: 60, // 1 minute default TTL
+      checkperiod: 120, // Check for expired keys every 2 minutes
+    });
+  }
+
+  // Memory cache for frequently accessed data
+  async getFromMemory<T>(key: string): Promise<T | null> {
+    return this.memoryCache.get<T>(key) || null;
+  }
+
+  async setInMemory<T>(key: string, value: T, ttl?: number): Promise<void> {
+    this.memoryCache.set(key, value, ttl);
+  }
+
+  // Redis cache for shared data across instances
+  async getFromRedis<T>(key: string): Promise<T | null> {
+    const value = await this.redis.get(key);
+    return value ? JSON.parse(value) : null;
+  }
+
+  async setInRedis<T>(key: string, value: T, ttl: number): Promise<void> {
+    await this.redis.setex(key, ttl, JSON.stringify(value));
+  }
+
+  // Multi-level cache strategy
+  async get<T>(key: string): Promise<T | null> {
+    // Try memory cache first
+    let value = await this.getFromMemory<T>(key);
+    if (value) return value;
+
+    // Try Redis cache
+    value = await this.getFromRedis<T>(key);
+    if (value) {
+      // Store in memory cache for faster access
+      await this.setInMemory(key, value, 60);
+      return value;
+    }
+
+    return null;
+  }
+
+  async set<T>(key: string, value: T, ttl: number): Promise<void> {
+    // Store in both caches
+    await Promise.all([
+      this.setInMemory(key, value, Math.min(ttl, 300)), // Max 5 minutes in memory
+      this.setInRedis(key, value, ttl)
+    ]);
+  }
+
+  async invalidate(key: string): Promise<void> {
+    await Promise.all([
+      this.memoryCache.del(key),
+      this.redis.del(key)
+    ]);
+  }
+}
+
+// Usage in service
+class BinanceService {
+  private cache = new CacheService();
+
+  async getAccountInfo(useCache = true): Promise<ApiResponse<AccountInfo>> {
+    const cacheKey = 'account_info';
+
+    if (useCache) {
+      const cached = await this.cache.get<AccountInfo>(cacheKey);
+      if (cached) {
+        return { success: true, data: cached };
+      }
+    }
+
+    try {
+      const account = await this.client.getAccountInformation();
+      
+      // Cache for 30 seconds
+      await this.cache.set(cacheKey, account, 30);
+      
+      return { success: true, data: account };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      };
+    }
+  }
+}
+```
+
+### Database Optimization
+```typescript
+// ✅ Good - Database connection pooling and optimization
+import { Pool, PoolConfig } from 'pg';
+
+class DatabaseManager {
+  private pool: Pool;
+
+  constructor() {
+    const poolConfig: PoolConfig = {
+      connectionString: config.database.url,
+      max: 20, // Maximum number of connections
+      min: 5,  // Minimum number of connections
+      idleTimeoutMillis: 30000, // Close idle connections after 30 seconds
+      connectionTimeoutMillis: 2000, // Timeout after 2 seconds
+      maxUses: 7500, // Close connection after 7500 uses
+    };
+
+    this.pool = new Pool(poolConfig);
+
+    // Handle pool errors
+    this.pool.on('error', (err) => {
+      console.error('Database pool error:', err);
+    });
+  }
+
+  // Optimized query with prepared statements
+  async getOrdersByUser(
+    userId: string, 
+    limit: number = 50, 
+    offset: number = 0
+  ): Promise<Order[]> {
+    const query = `
+      SELECT o.*, s.name as symbol_name
+      FROM orders o
+      LEFT JOIN symbols s ON o.symbol = s.symbol
+      WHERE o.user_id = $1
+      ORDER BY o.created_at DESC
+      LIMIT $2 OFFSET $3
+    `;
+
+    const result = await this.pool.query(query, [userId, limit, offset]);
+    return result.rows;
+  }
+
+  // Batch operations for better performance
+  async insertMultipleOrders(orders: Order[]): Promise<void> {
+    const client = await this.pool.connect();
+    
+    try {
+      await client.query('BEGIN');
+
+      const query = `
+        INSERT INTO orders (user_id, symbol, side, type, quantity, price, status)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+      `;
+
+      for (const order of orders) {
+        await client.query(query, [
+          order.userId,
+          order.symbol,
+          order.side,
+          order.type,
+          order.quantity,
+          order.price,
+          order.status
+        ]);
+      }
+
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  // Connection health check
+  async healthCheck(): Promise<boolean> {
+    try {
+      const result = await this.pool.query('SELECT 1');
+      return result.rows.length > 0;
+    } catch (error) {
+      console.error('Database health check failed:', error);
+      return false;
+    }
+  }
+
+  async close(): Promise<void> {
+    await this.pool.end();
+  }
+}
+```
+
+### Memory Management & Monitoring
+```typescript
+// ✅ Good - Memory monitoring and optimization
+class MemoryMonitor {
+  private static instance: MemoryMonitor;
+  private monitoringInterval?: NodeJS.Timeout;
+
+  static getInstance(): MemoryMonitor {
+    if (!this.instance) {
+      this.instance = new MemoryMonitor();
+    }
+    return this.instance;
+  }
+
+  startMonitoring(intervalMs: number = 30000): void {
+    this.monitoringInterval = setInterval(() => {
+      this.logMemoryUsage();
+      this.checkMemoryThresholds();
+    }, intervalMs);
+  }
+
+  stopMonitoring(): void {
+    if (this.monitoringInterval) {
+      clearInterval(this.monitoringInterval);
+    }
+  }
+
+  private logMemoryUsage(): void {
+    const usage = process.memoryUsage();
+    const formatBytes = (bytes: number) => (bytes / 1024 / 1024).toFixed(2);
+
+    console.log('Memory Usage:', {
+      rss: `${formatBytes(usage.rss)} MB`,
+      heapTotal: `${formatBytes(usage.heapTotal)} MB`,
+      heapUsed: `${formatBytes(usage.heapUsed)} MB`,
+      external: `${formatBytes(usage.external)} MB`,
+      arrayBuffers: `${formatBytes(usage.arrayBuffers)} MB`,
+    });
+  }
+
+  private checkMemoryThresholds(): void {
+    const usage = process.memoryUsage();
+    const heapUsedMB = usage.heapUsed / 1024 / 1024;
+    const heapTotalMB = usage.heapTotal / 1024 / 1024;
+    const heapUsagePercent = (heapUsedMB / heapTotalMB) * 100;
+
+    // Warning at 80% heap usage
+    if (heapUsagePercent > 80) {
+      console.warn(`High memory usage: ${heapUsagePercent.toFixed(2)}%`);
+      
+      // Force garbage collection if available
+      if (global.gc) {
+        global.gc();
+        console.log('Forced garbage collection');
+      }
+    }
+
+    // Critical at 90% heap usage
+    if (heapUsagePercent > 90) {
+      console.error(`Critical memory usage: ${heapUsagePercent.toFixed(2)}%`);
+      // Consider implementing emergency measures
+      this.emergencyCleanup();
+    }
+  }
+
+  private emergencyCleanup(): void {
+    // Clear caches
+    if (global.cache) {
+      global.cache.flushAll();
+    }
+
+    // Close non-essential connections
+    // Implement your cleanup logic here
+  }
+
+  getMemoryStats(): object {
+    const usage = process.memoryUsage();
+    return {
+      rss: usage.rss,
+      heapTotal: usage.heapTotal,
+      heapUsed: usage.heapUsed,
+      external: usage.external,
+      arrayBuffers: usage.arrayBuffers,
+      heapUsagePercent: (usage.heapUsed / usage.heapTotal) * 100,
+    };
+  }
+}
+
+// Start monitoring
+const memoryMonitor = MemoryMonitor.getInstance();
+memoryMonitor.startMonitoring();
+
+// Graceful shutdown
+process.on('SIGTERM', () => {
+  memoryMonitor.stopMonitoring();
+});
+```
+
+## Best Practices Summary
+
+### Security
+1. **Never hardcode secrets or API keys**
+2. **Use environment variables for configuration**
+3. **Implement comprehensive input validation**
+4. **Use parameterized queries to prevent SQL injection**
+5. **Implement proper authentication and authorization**
+6. **Apply rate limiting to prevent abuse**
+7. **Use HTTPS for all communications**
+8. **Implement security headers and CORS properly**
+
+### Performance
+1. **Implement multi-level caching strategies**
+2. **Use database connection pooling**
+3. **Optimize database queries with indexes**
+4. **Monitor memory usage and implement cleanup**
+5. **Use compression for API responses**
+6. **Implement proper error handling to prevent crashes**
+7. **Use clustering for CPU-intensive operations**
+8. **Monitor and log performance metrics**

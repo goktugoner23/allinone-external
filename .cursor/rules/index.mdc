@@ -1,0 +1,38 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+# TypeScript & Node.js Development Guidelines
+
+This is the main index of our TypeScript and Node.js development guidelines. These rules cover all aspects of building robust trading APIs and backend services using TypeScript, Node.js, and modern best practices.
+
+## Language & Syntax
+
+- [TypeScript Syntax Guidelines](mdc:typescript-syntax.mdc) - Best practices for using TypeScript language features
+- [Node.js Best Practices](mdc:nodejs-best-practices.mdc) - Node.js specific development guidelines
+
+## Code Quality & Style
+
+- [Code Style Guidelines](mdc:code-style.mdc) - Naming conventions and formatting standards
+- [Testing & Code Quality Guidelines](mdc:testing-quality.mdc) - Testing practices and code quality assurance
+
+## Architecture & Structure
+
+- [Architecture Guidelines](mdc:architecture.mdc) - Architectural patterns for scalable APIs and services
+- [Project Structure Guide](mdc:project-structure.mdc) - Organization of TypeScript project files and modules
+
+## API Development
+
+- [API Design Guidelines](mdc:api-design.mdc) - RESTful API design and WebSocket implementation
+- [Security & Performance Guidelines](mdc:security-performance.mdc) - Making APIs secure and performant
+- [Error Handling & Logging Guidelines](mdc:error-handling.mdc) - Managing errors and logging in production
+
+## Trading & Financial APIs
+
+- [Trading API Guidelines](mdc:trading-api.mdc) - Best practices for financial trading APIs
+- [Real-time Data Guidelines](mdc:realtime-data.mdc) - WebSocket and streaming data best practices
+
+## Original Comprehensive Rules
+
+- [Complete Custom Rules](mdc:customrules.mdc) - Original comprehensive rule set

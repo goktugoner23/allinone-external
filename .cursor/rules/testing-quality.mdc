@@ -1,0 +1,666 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+# Testing & Code Quality Guidelines
+
+Testing practices and code quality assurance for TypeScript and Node.js applications, particularly for trading APIs and backend services.
+
+## Testing Framework Setup
+
+### Jest Configuration
+```javascript
+// jest.config.js
+module.exports = {
+  preset: 'ts-jest',
+  testEnvironment: 'node',
+  roots: ['<rootDir>/src'],
+  testMatch: [
+    '**/__tests__/**/*.test.ts',
+    '**/?(*.)+(spec|test).ts'
+  ],
+  transform: {
+    '^.+\\.ts$': 'ts-jest',
+  },
+  collectCoverageFrom: [
+    'src/**/*.ts',
+    '!src/**/*.d.ts',
+    '!src/**/*.test.ts',
+    '!src/**/*.spec.ts',
+    '!src/server.ts',
+  ],
+  coverageDirectory: 'coverage',
+  coverageReporters: ['text', 'lcov', 'html'],
+  setupFilesAfterEnv: ['<rootDir>/src/__tests__/setup.ts'],
+  testTimeout: 10000,
+  moduleNameMapping: {
+    '^@/(.*)$': '<rootDir>/src/$1',
+  },
+};
+```
+
+### Test Structure Organization
+```
+src/
+├── __tests__/
+│   ├── setup.ts                    # Test setup and global mocks
+│   ├── fixtures/                   # Test data and mock responses
+│   │   ├── binance-responses.ts
+│   │   └── order-data.ts
+│   ├── unit/                       # Unit tests
+│   │   ├── services/
+│   │   │   ├── binance.service.test.ts
+│   │   │   └── websocket.service.test.ts
+│   │   ├── controllers/
+│   │   └── utils/
+│   ├── integration/                # Integration tests
+│   │   ├── api/
+│   │   │   ├── orders.integration.test.ts
+│   │   │   └── websocket.integration.test.ts
+│   │   └── services/
+│   └── e2e/                        # End-to-end tests
+│       ├── trading-flow.e2e.test.ts
+│       └── websocket-flow.e2e.test.ts
+```
+
+## Unit Testing
+
+### Service Testing
+```typescript
+// src/__tests__/unit/services/binance.service.test.ts
+import { BinanceService } from '@/services/binance';
+import { USDMClient } from 'binance';
+import { mockAccountInfo, mockPositions } from '../../fixtures/binance-responses';
+
+// Mock the binance client
+jest.mock('binance');
+const MockedUSDMClient = USDMClient as jest.MockedClass<typeof USDMClient>;
+
+describe('BinanceService', () => {
+  let service: BinanceService;
+  let mockClient: jest.Mocked<USDMClient>;
+
+  beforeEach(() => {
+    // Clear all mocks before each test
+    jest.clearAllMocks();
+    
+    // Create mock client instance
+    mockClient = {
+      getAccountInformation: jest.fn(),
+      getPositionInformation: jest.fn(),
+      submitNewOrder: jest.fn(),
+    } as any;
+
+    // Mock the constructor to return our mock client
+    MockedUSDMClient.mockImplementation(() => mockClient);
+    
+    service = new BinanceService();
+  });
+
+  describe('getAccountInfo', () => {
+    it('should return account information successfully', async () => {
+      // Arrange
+      mockClient.getAccountInformation.mockResolvedValue(mockAccountInfo);
+
+      // Act
+      const result = await service.getAccountInfo();
+
+      // Assert
+      expect(result.success).toBe(true);
+      expect(result.data).toEqual(mockAccountInfo);
+      expect(mockClient.getAccountInformation).toHaveBeenCalledTimes(1);
+    });
+
+    it('should handle API errors gracefully', async () => {
+      // Arrange
+      const errorMessage = 'API rate limit exceeded';
+      mockClient.getAccountInformation.mockRejectedValue(new Error(errorMessage));
+
+      // Act
+      const result = await service.getAccountInfo();
+
+      // Assert
+      expect(result.success).toBe(false);
+      expect(result.error).toBe(errorMessage);
+      expect(result.data).toBeUndefined();
+    });
+  });
+
+  describe('placeOrder', () => {
+    const orderData = {
+      symbol: 'BTCUSDT',
+      side: 'BUY' as const,
+      type: 'MARKET' as const,
+      quantity: 0.001
+    };
+
+    it('should place order successfully', async () => {
+      // Arrange
+      const mockOrder = {
+        orderId: 123456,
+        symbol: 'BTCUSDT',
+        status: 'FILLED',
+        ...orderData
+      };
+      mockClient.submitNewOrder.mockResolvedValue(mockOrder);
+
+      // Act
+      const result = await service.placeOrder(orderData);
+
+      // Assert
+      expect(result.success).toBe(true);
+      expect(result.data).toEqual(mockOrder);
+      expect(mockClient.submitNewOrder).toHaveBeenCalledWith(orderData);
+    });
+
+    it('should validate order data before placing', async () => {
+      // Arrange
+      const invalidOrderData = {
+        ...orderData,
+        quantity: -1 // Invalid quantity
+      };
+
+      // Act
+      const result = await service.placeOrder(invalidOrderData);
+
+      // Assert
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('quantity');
+      expect(mockClient.submitNewOrder).not.toHaveBeenCalled();
+    });
+  });
+});
+```
+
+### Utility Function Testing
+```typescript
+// src/__tests__/unit/utils/price-calculator.test.ts
+import { PriceCalculator } from '@/utils/price-calculator';
+
+describe('PriceCalculator', () => {
+  describe('calculatePnL', () => {
+    it('should calculate profit for long position', () => {
+      // Arrange
+      const entryPrice = 40000;
+      const currentPrice = 45000;
+      const quantity = 0.1;
+
+      // Act
+      const pnl = PriceCalculator.calculatePnL(entryPrice, currentPrice, quantity, 'LONG');
+
+      // Assert
+      expect(pnl).toBe(500); // (45000 - 40000) * 0.1
+    });
+
+    it('should calculate loss for long position', () => {
+      // Arrange
+      const entryPrice = 45000;
+      const currentPrice = 40000;
+      const quantity = 0.1;
+
+      // Act
+      const pnl = PriceCalculator.calculatePnL(entryPrice, currentPrice, quantity, 'LONG');
+
+      // Assert
+      expect(pnl).toBe(-500); // (40000 - 45000) * 0.1
+    });
+
+    it('should handle decimal precision correctly', () => {
+      // Arrange
+      const entryPrice = 0.12345;
+      const currentPrice = 0.12350;
+      const quantity = 1000;
+
+      // Act
+      const pnl = PriceCalculator.calculatePnL(entryPrice, currentPrice, quantity, 'LONG');
+
+      // Assert
+      expect(pnl).toBeCloseTo(0.05, 8); // Precise decimal handling
+    });
+  });
+
+  describe('calculatePercentageChange', () => {
+    it('should calculate percentage change correctly', () => {
+      // Arrange
+      const oldPrice = 40000;
+      const newPrice = 42000;
+
+      // Act
+      const change = PriceCalculator.calculatePercentageChange(oldPrice, newPrice);
+
+      // Assert
+      expect(change).toBe(5); // 5% increase
+    });
+
+    it('should handle zero division', () => {
+      // Arrange
+      const oldPrice = 0;
+      const newPrice = 100;
+
+      // Act & Assert
+      expect(() => {
+        PriceCalculator.calculatePercentageChange(oldPrice, newPrice);
+      }).toThrow('Division by zero');
+    });
+  });
+});
+```
+
+## Integration Testing
+
+### API Integration Tests
+```typescript
+// src/__tests__/integration/api/orders.integration.test.ts
+import request from 'supertest';
+import { app } from '@/app';
+import { BinanceService } from '@/services/binance';
+
+// Mock the BinanceService
+jest.mock('@/services/binance');
+const MockedBinanceService = BinanceService as jest.MockedClass<typeof BinanceService>;
+
+describe('Orders API Integration', () => {
+  let mockBinanceService: jest.Mocked<BinanceService>;
+
+  beforeEach(() => {
+    mockBinanceService = {
+      placeOrder: jest.fn(),
+      getOrders: jest.fn(),
+      cancelOrder: jest.fn(),
+    } as any;
+
+    MockedBinanceService.mockImplementation(() => mockBinanceService);
+  });
+
+  describe('POST /api/binance/orders', () => {
+    const validOrderData = {
+      symbol: 'BTCUSDT',
+      side: 'BUY',
+      type: 'MARKET',
+      quantity: 0.001
+    };
+
+    it('should place order successfully', async () => {
+      // Arrange
+      const mockOrder = {
+        orderId: 123456,
+        symbol: 'BTCUSDT',
+        status: 'FILLED',
+        ...validOrderData
+      };
+      mockBinanceService.placeOrder.mockResolvedValue({
+        success: true,
+        data: mockOrder
+      });
+
+      // Act
+      const response = await request(app)
+        .post('/api/binance/orders')
+        .send(validOrderData)
+        .expect(201);
+
+      // Assert
+      expect(response.body.success).toBe(true);
+      expect(response.body.data.orderId).toBe(123456);
+      expect(mockBinanceService.placeOrder).toHaveBeenCalledWith(validOrderData);
+    });
+
+    it('should return 400 for invalid order data', async () => {
+      // Arrange
+      const invalidOrderData = {
+        symbol: 'INVALID',
+        side: 'INVALID_SIDE',
+        quantity: -1
+      };
+
+      // Act
+      const response = await request(app)
+        .post('/api/binance/orders')
+        .send(invalidOrderData)
+        .expect(400);
+
+      // Assert
+      expect(response.body.success).toBe(false);
+      expect(response.body.error).toContain('validation');
+      expect(mockBinanceService.placeOrder).not.toHaveBeenCalled();
+    });
+
+    it('should handle service errors', async () => {
+      // Arrange
+      mockBinanceService.placeOrder.mockResolvedValue({
+        success: false,
+        error: 'Insufficient balance'
+      });
+
+      // Act
+      const response = await request(app)
+        .post('/api/binance/orders')
+        .send(validOrderData)
+        .expect(400);
+
+      // Assert
+      expect(response.body.success).toBe(false);
+      expect(response.body.error).toBe('Insufficient balance');
+    });
+  });
+
+  describe('GET /api/binance/orders', () => {
+    it('should return orders list', async () => {
+      // Arrange
+      const mockOrders = [
+        { orderId: 1, symbol: 'BTCUSDT', status: 'FILLED' },
+        { orderId: 2, symbol: 'ETHUSDT', status: 'NEW' }
+      ];
+      mockBinanceService.getOrders.mockResolvedValue({
+        success: true,
+        data: mockOrders
+      });
+
+      // Act
+      const response = await request(app)
+        .get('/api/binance/orders')
+        .expect(200);
+
+      // Assert
+      expect(response.body.success).toBe(true);
+      expect(response.body.data).toHaveLength(2);
+      expect(response.body.data[0].orderId).toBe(1);
+    });
+
+    it('should handle query parameters', async () => {
+      // Arrange
+      mockBinanceService.getOrders.mockResolvedValue({
+        success: true,
+        data: []
+      });
+
+      // Act
+      await request(app)
+        .get('/api/binance/orders?symbol=BTCUSDT&status=OPEN')
+        .expect(200);
+
+      // Assert
+      expect(mockBinanceService.getOrders).toHaveBeenCalledWith({
+        symbol: 'BTCUSDT',
+        status: 'OPEN'
+      });
+    });
+  });
+});
+```
+
+### WebSocket Integration Tests
+```typescript
+// src/__tests__/integration/websocket.integration.test.ts
+import WebSocket from 'ws';
+import { server } from '@/server';
+import { BinanceService } from '@/services/binance';
+
+describe('WebSocket Integration', () => {
+  let ws: WebSocket;
+  let mockBinanceService: jest.Mocked<BinanceService>;
+
+  beforeEach(async () => {
+    // Start server
+    await new Promise<void>((resolve) => {
+      server.listen(0, resolve);
+    });
+
+    const port = (server.address() as any).port;
+    ws = new WebSocket(`ws://localhost:${port}/ws`);
+
+    await new Promise<void>((resolve) => {
+      ws.on('open', resolve);
+    });
+  });
+
+  afterEach(async () => {
+    ws.close();
+    server.close();
+  });
+
+  it('should establish WebSocket connection', (done) => {
+    ws.on('message', (data) => {
+      const message = JSON.parse(data.toString());
+      
+      if (message.type === 'connection') {
+        expect(message.data.status).toBe('connected');
+        done();
+      }
+    });
+  });
+
+  it('should receive position updates', (done) => {
+    const mockPosition = {
+      symbol: 'BTCUSDT',
+      positionAmount: 0.001,
+      unrealizedProfit: 5.25
+    };
+
+    ws.on('message', (data) => {
+      const message = JSON.parse(data.toString());
+      
+      if (message.type === 'positions_update') {
+        expect(message.data).toContainEqual(
+          expect.objectContaining(mockPosition)
+        );
+        done();
+      }
+    });
+
+    // Simulate position update
+    setTimeout(() => {
+      // Trigger position update through service
+      mockBinanceService.broadcastPositionUpdate(mockPosition);
+    }, 100);
+  });
+
+  it('should handle client disconnection gracefully', (done) => {
+    ws.close();
+    
+    setTimeout(() => {
+      // Verify server handles disconnection without errors
+      expect(server.listening).toBe(true);
+      done();
+    }, 100);
+  });
+});
+```
+
+## Test Data Management
+
+### Mock Data Fixtures
+```typescript
+// src/__tests__/fixtures/binance-responses.ts
+export const mockAccountInfo = {
+  feeTier: 0,
+  canTrade: true,
+  canDeposit: true,
+  canWithdraw: true,
+  updateTime: 1640995200000,
+  totalWalletBalance: '1000.00000000',
+  totalUnrealizedProfit: '0.00000000',
+  totalMarginBalance: '1000.00000000',
+  totalPositionInitialMargin: '0.00000000',
+  totalOpenOrderInitialMargin: '0.00000000',
+  totalCrossWalletBalance: '1000.00000000',
+  totalCrossUnPnl: '0.00000000',
+  availableBalance: '1000.00000000',
+  maxWithdrawAmount: '1000.00000000',
+  assets: [
+    {
+      asset: 'USDT',
+      walletBalance: '1000.00000000',
+      unrealizedProfit: '0.00000000',
+      marginBalance: '1000.00000000',
+      maintMargin: '0.00000000',
+      initialMargin: '0.00000000',
+      positionInitialMargin: '0.00000000',
+      openOrderInitialMargin: '0.00000000',
+      crossWalletBalance: '1000.00000000',
+      crossUnPnl: '0.00000000',
+      availableBalance: '1000.00000000',
+      maxWithdrawAmount: '1000.00000000'
+    }
+  ],
+  positions: []
+};
+
+export const mockPositions = [
+  {
+    symbol: 'BTCUSDT',
+    initialMargin: '0',
+    maintMargin: '0',
+    unrealizedProfit: '0.00000000',
+    positionInitialMargin: '0',
+    openOrderInitialMargin: '0',
+    leverage: '20',
+    isolated: false,
+    entryPrice: '0.0000',
+    maxNotional: '250000',
+    positionSide: 'BOTH',
+    positionAmount: '0.000',
+    notional: '0',
+    isolatedWallet: '0',
+    updateTime: 1640995200000
+  }
+];
+
+export const mockOrderResponse = {
+  orderId: 123456789,
+  symbol: 'BTCUSDT',
+  status: 'NEW',
+  clientOrderId: 'test_order_001',
+  price: '45000.00',
+  avgPrice: '0.00',
+  origQty: '0.001',
+  executedQty: '0.000',
+  cumQty: '0.000',
+  cumQuote: '0.00000000',
+  timeInForce: 'GTC',
+  type: 'LIMIT',
+  reduceOnly: false,
+  closePosition: false,
+  side: 'BUY',
+  positionSide: 'BOTH',
+  stopPrice: '0.00',
+  workingType: 'CONTRACT_PRICE',
+  priceProtect: false,
+  origType: 'LIMIT',
+  updateTime: 1640995200000
+};
+```
+
+## Code Quality Tools
+
+### ESLint Configuration
+```javascript
+// .eslintrc.js
+module.exports = {
+  parser: '@typescript-eslint/parser',
+  parserOptions: {
+    ecmaVersion: 2020,
+    sourceType: 'module',
+    project: './tsconfig.json',
+  },
+  plugins: ['@typescript-eslint'],
+  extends: [
+    'eslint:recommended',
+    '@typescript-eslint/recommended',
+    '@typescript-eslint/recommended-requiring-type-checking',
+  ],
+  rules: {
+    '@typescript-eslint/no-unused-vars': 'error',
+    '@typescript-eslint/no-explicit-any': 'warn',
+    '@typescript-eslint/explicit-function-return-type': 'warn',
+    '@typescript-eslint/no-floating-promises': 'error',
+    '@typescript-eslint/await-thenable': 'error',
+    'prefer-const': 'error',
+    'no-var': 'error',
+    'no-console': 'warn',
+  },
+  env: {
+    node: true,
+    jest: true,
+  },
+};
+```
+
+### Prettier Configuration
+```json
+// .prettierrc
+{
+  "semi": true,
+  "trailingComma": "es5",
+  "singleQuote": true,
+  "printWidth": 100,
+  "tabWidth": 2,
+  "useTabs": false,
+  "bracketSpacing": true,
+  "arrowParens": "avoid"
+}
+```
+
+## Continuous Integration
+
+### GitHub Actions Workflow
+```yaml
+# .github/workflows/ci.yml
+name: CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version: [16.x, 18.x, 20.x]
+
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Use Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v3
+      with:
+        node-version: ${{ matrix.node-version }}
+        cache: 'npm'
+    
+    - name: Install dependencies
+      run: npm ci
+    
+    - name: Run linter
+      run: npm run lint
+    
+    - name: Run type check
+      run: npm run type-check
+    
+    - name: Run tests
+      run: npm run test:coverage
+    
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage/lcov.info
+        flags: unittests
+        name: codecov-umbrella
+```
+
+## Best Practices Summary
+
+1. **Use Jest for comprehensive testing framework**
+2. **Organize tests in unit, integration, and e2e categories**
+3. **Mock external dependencies appropriately**
+4. **Use descriptive test names and AAA pattern**
+5. **Maintain high test coverage (>80%)**
+6. **Use fixtures for consistent test data**
+7. **Implement proper setup and teardown**
+8. **Use ESLint and Prettier for code quality**
+9. **Set up CI/CD pipelines for automated testing**
+10. **Test both success and error scenarios**

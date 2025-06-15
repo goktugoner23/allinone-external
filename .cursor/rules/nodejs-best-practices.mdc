@@ -1,0 +1,342 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# Node.js Best Practices
+
+Best practices for Node.js development, particularly for trading APIs, WebSocket services, and backend applications.
+
+## Application Architecture
+
+### Use Layered Architecture
+```typescript
+// ✅ Good - Clear separation of concerns
+src/
+├── app.ts              // Express app setup
+├── server.ts           // Server startup
+├── config/             // Configuration management
+├── services/           // Business logic
+│   ├── binance/        // External API integrations
+│   └── websocket/      // WebSocket management
+├── routes/             // API route handlers
+├── middleware/         // Custom middleware
+├── types/              // TypeScript type definitions
+└── utils/              // Utility functions
+```
+
+### Environment Configuration
+```typescript
+// ✅ Good - Centralized configuration
+// config/index.ts
+export default {
+  port: parseInt(process.env.PORT || '3000'),
+  nodeEnv: process.env.NODE_ENV || 'development',
+  binance: {
+    apiKey: process.env.BINANCE_API_KEY!,
+    apiSecret: process.env.BINANCE_API_SECRET!,
+  },
+  cors: {
+    origin: process.env.CORS_ORIGINS?.split(',') || ['*'],
+  },
+  logging: {
+    level: process.env.LOG_LEVEL || 'info',
+  },
+};
+```
+
+## Error Handling & Logging
+
+### Centralized Error Handling
+```typescript
+// ✅ Good - Global error handler middleware
+app.use((error: Error, req: Request, res: Response, next: NextFunction) => {
+  console.error('Express error:', error);
+  
+  if (error.name === 'ValidationError') {
+    return res.status(400).json({
+      success: false,
+      error: 'Invalid request data',
+      details: error.message
+    });
+  }
+  
+  res.status(500).json({
+    success: false,
+    error: 'Internal server error'
+  });
+});
+```
+
+### Structured Logging
+```typescript
+// ✅ Good - Structured logging with context
+import winston from 'winston';
+
+const logger = winston.createLogger({
+  level: config.logging.level,
+  format: winston.format.combine(
+    winston.format.timestamp(),
+    winston.format.errors({ stack: true }),
+    winston.format.json()
+  ),
+  transports: [
+    new winston.transports.File({ filename: 'error.log', level: 'error' }),
+    new winston.transports.File({ filename: 'combined.log' }),
+  ],
+});
+
+// Usage
+logger.info('WebSocket connection established', { 
+  clientId: ws.id, 
+  remoteAddress: req.socket.remoteAddress 
+});
+```
+
+## WebSocket Management
+
+### Connection Lifecycle Management
+```typescript
+// ✅ Good - Proper WebSocket lifecycle
+export class WebSocketManager {
+  private clients: Set<WebSocket> = new Set();
+
+  addClient(ws: WebSocket): void {
+    this.clients.add(ws);
+    
+    // Send initial connection status
+    ws.send(JSON.stringify({
+      type: 'connection',
+      status: 'connected',
+      timestamp: Date.now()
+    }));
+
+    // Handle client disconnect
+    ws.on('close', () => {
+      this.clients.delete(ws);
+      logger.info('WebSocket client disconnected', { clientCount: this.clients.size });
+    });
+
+    ws.on('error', (error) => {
+      logger.error('WebSocket client error', { error: error.message });
+      this.clients.delete(ws);
+    });
+  }
+
+  broadcastToClients(message: any): void {
+    const messageStr = JSON.stringify(message);
+    
+    this.clients.forEach((client) => {
+      if (client.readyState === WebSocket.OPEN) {
+        try {
+          client.send(messageStr);
+        } catch (error) {
+          logger.error('Error sending message to client', { error });
+          this.clients.delete(client);
+        }
+      } else {
+        this.clients.delete(client);
+      }
+    });
+  }
+}
+```
+
+## API Design & Security
+
+### Rate Limiting
+```typescript
+// ✅ Good - Implement rate limiting
+import rateLimit from 'express-rate-limit';
+
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // limit each IP to 100 requests per windowMs
+  message: {
+    success: false,
+    error: 'Too many requests, please try again later'
+  }
+});
+
+app.use('/api/', apiLimiter);
+```
+
+### Input Validation
+```typescript
+// ✅ Good - Validate all inputs
+import Joi from 'joi';
+
+const orderSchema = Joi.object({
+  symbol: Joi.string().required(),
+  side: Joi.string().valid('BUY', 'SELL').required(),
+  type: Joi.string().valid('MARKET', 'LIMIT').required(),
+  quantity: Joi.number().positive().required(),
+  price: Joi.number().positive().when('type', {
+    is: 'LIMIT',
+    then: Joi.required()
+  })
+});
+
+app.post('/api/orders', async (req, res) => {
+  const { error, value } = orderSchema.validate(req.body);
+  if (error) {
+    return res.status(400).json({
+      success: false,
+      error: 'Invalid order data',
+      details: error.details
+    });
+  }
+  
+  // Process validated order
+});
+```
+
+## Performance & Scalability
+
+### Connection Pooling
+```typescript
+// ✅ Good - Reuse connections
+export class BinanceService {
+  private usdMClient: USDMClient;
+  private coinMClient: COINMClient;
+
+  constructor() {
+    // Reuse client instances
+    this.usdMClient = new USDMClient({
+      api_key: config.binance.apiKey,
+      api_secret: config.binance.apiSecret,
+    });
+    
+    this.coinMClient = new COINMClient({
+      api_key: config.binance.apiKey,
+      api_secret: config.binance.apiSecret,
+    });
+  }
+}
+```
+
+### Graceful Shutdown
+```typescript
+// ✅ Good - Handle graceful shutdown
+process.on('SIGTERM', async () => {
+  console.log('SIGTERM received, shutting down gracefully...');
+  
+  // Close server
+  server.close(() => {
+    console.log('HTTP server closed');
+  });
+  
+  // Cleanup services
+  await serviceManager.shutdown();
+  
+  // Exit process
+  process.exit(0);
+});
+
+process.on('SIGINT', async () => {
+  console.log('SIGINT received, shutting down gracefully...');
+  await gracefulShutdown();
+});
+```
+
+## Memory Management
+
+### Avoid Memory Leaks
+```typescript
+// ✅ Good - Clean up resources
+export class WebSocketManager {
+  private heartbeatInterval?: NodeJS.Timeout;
+
+  setupHeartbeat(): void {
+    this.heartbeatInterval = setInterval(() => {
+      this.sendHeartbeat();
+    }, 30000);
+  }
+
+  async disconnect(): Promise<void> {
+    // Clear intervals
+    if (this.heartbeatInterval) {
+      clearInterval(this.heartbeatInterval);
+      this.heartbeatInterval = undefined;
+    }
+
+    // Close connections
+    this.clients.forEach(client => {
+      if (client.readyState === WebSocket.OPEN) {
+        client.close();
+      }
+    });
+    
+    this.clients.clear();
+  }
+}
+```
+
+## Security Best Practices
+
+### Environment Variables
+```typescript
+// ✅ Good - Never commit secrets
+// .env file (not in git)
+BINANCE_API_KEY=your_api_key_here
+BINANCE_API_SECRET=your_api_secret_here
+NODE_ENV=production
+
+// Validate required environment variables
+function validateEnv() {
+  const required = ['BINANCE_API_KEY', 'BINANCE_API_SECRET'];
+  const missing = required.filter(key => !process.env[key]);
+  
+  if (missing.length > 0) {
+    throw new Error(`Missing required environment variables: ${missing.join(', ')}`);
+  }
+}
+```
+
+### CORS Configuration
+```typescript
+// ✅ Good - Restrictive CORS in production
+const corsOptions = {
+  origin: config.nodeEnv === 'production' 
+    ? config.cors.origin 
+    : true, // Allow all origins in development
+  credentials: true,
+  optionsSuccessStatus: 200
+};
+
+app.use(cors(corsOptions));
+```
+
+## Testing & Development
+
+### Health Checks
+```typescript
+// ✅ Good - Comprehensive health checks
+app.get('/health', (req, res) => {
+  const status = {
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+    memory: process.memoryUsage(),
+    services: {
+      binance: binanceService.getConnectionStatus(),
+      websocket: wsManager.getStatus()
+    }
+  };
+  
+  res.json(status);
+});
+```
+
+## Best Practices Summary
+
+1. **Use TypeScript for type safety**
+2. **Implement proper error handling and logging**
+3. **Validate all inputs**
+4. **Use environment variables for configuration**
+5. **Implement rate limiting and security measures**
+6. **Handle graceful shutdown**
+7. **Monitor memory usage and clean up resources**
+8. **Use connection pooling for external APIs**
+9. **Implement comprehensive health checks**
+10. **Follow RESTful API design principles**

@@ -1,0 +1,212 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# TypeScript Syntax Guidelines
+
+Best practices for using TypeScript language features in Node.js applications, particularly for trading APIs and backend services.
+
+## Type Definitions & Interfaces
+
+### Use Explicit Types for Public APIs
+```typescript
+// ✅ Good - Explicit return types for public functions
+export async function getAccountInfo(): Promise<ApiResponse<AccountInfo>> {
+  // implementation
+}
+
+// ❌ Avoid - Implicit return types for public APIs
+export async function getAccountInfo() {
+  // implementation
+}
+```
+
+### Define Comprehensive Interfaces
+```typescript
+// ✅ Good - Well-defined interfaces
+export interface ApiResponse<T = any> {
+  success: boolean;
+  data?: T;
+  error?: string;
+  timestamp?: number;
+}
+
+export interface Position {
+  symbol: string;
+  positionAmount: number;
+  entryPrice: number;
+  unrealizedProfit: number;
+  marginType: 'cross' | 'isolated';
+}
+```
+
+## Error Handling & Type Safety
+
+### Use Union Types for Error Handling
+```typescript
+// ✅ Good - Type-safe error handling
+type Result<T> = { success: true; data: T } | { success: false; error: string };
+
+async function fetchData(): Promise<Result<UserData>> {
+  try {
+    const data = await api.getData();
+    return { success: true, data };
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+}
+```
+
+### Proper Error Type Checking
+```typescript
+// ✅ Good - Proper error type checking
+catch (error: unknown) {
+  const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+  console.error('API Error:', errorMessage);
+}
+
+// ❌ Avoid - Assuming error type
+catch (error) {
+  console.error('API Error:', error.message); // error might not have message
+}
+```
+
+## Async/Await & Promises
+
+### Use Async/Await Consistently
+```typescript
+// ✅ Good - Consistent async/await usage
+export class BinanceService {
+  async initialize(): Promise<void> {
+    try {
+      await Promise.all([
+        this.usdMWsManager.initialize(),
+        this.coinMWsManager.initialize()
+      ]);
+      this.isInitialized = true;
+    } catch (error) {
+      console.error('Failed to initialize:', error);
+      throw error;
+    }
+  }
+}
+```
+
+## Class Design & Access Modifiers
+
+### Use Proper Access Modifiers
+```typescript
+// ✅ Good - Clear access control
+export class WebSocketManager {
+  private wsClient: WebsocketClient | null = null;
+  private reconnectAttempts: number = 0;
+  public readonly clients: Set<WebSocket> = new Set();
+  protected isConnected: boolean = false;
+
+  public addClient(ws: WebSocket): void {
+    this.clients.add(ws);
+  }
+
+  private scheduleReconnect(): void {
+    // internal logic
+  }
+}
+```
+
+## Utility Functions & Type Guards
+
+### Create Type Guards for Runtime Checks
+```typescript
+// ✅ Good - Type guards for runtime safety
+function isValidOrderData(data: any): data is OrderData {
+  return (
+    typeof data === 'object' &&
+    typeof data.symbol === 'string' &&
+    ['BUY', 'SELL'].includes(data.side) &&
+    typeof data.quantity === 'number'
+  );
+}
+
+// Usage
+if (isValidOrderData(requestBody)) {
+  await placeOrder(requestBody); // TypeScript knows it's OrderData
+}
+```
+
+### Use Utility Types
+```typescript
+// ✅ Good - Leverage TypeScript utility types
+type PartialOrder = Partial<OrderData>;
+type RequiredOrderFields = Required<Pick<OrderData, 'symbol' | 'side' | 'quantity'>>;
+type OrderWithoutId = Omit<Order, 'orderId'>;
+```
+
+## Module Organization
+
+### Use Barrel Exports
+```typescript
+// services/index.ts
+export { default as BinanceService } from './binance';
+export { default as WebSocketManager } from './websocket';
+export * from './types';
+
+// Usage
+import { BinanceService, WebSocketManager } from './services';
+```
+
+### Organize Types in Separate Files
+```typescript
+// types/api.ts
+export interface ApiResponse<T> { /* ... */ }
+export interface Position { /* ... */ }
+
+// types/orders.ts
+export interface OrderData { /* ... */ }
+export type OrderSide = 'BUY' | 'SELL';
+
+// types/index.ts
+export * from './api';
+export * from './orders';
+```
+
+## Configuration & Environment
+
+### Type-Safe Configuration
+```typescript
+// ✅ Good - Type-safe config
+interface Config {
+  port: number;
+  binance: {
+    apiKey: string;
+    apiSecret: string;
+  };
+  cors: {
+    origin: string[];
+  };
+}
+
+const config: Config = {
+  port: parseInt(process.env.PORT || '3000'),
+  binance: {
+    apiKey: process.env.BINANCE_API_KEY!,
+    apiSecret: process.env.BINANCE_API_SECRET!,
+  },
+  cors: {
+    origin: process.env.CORS_ORIGINS?.split(',') || ['*'],
+  },
+};
+```
+
+## Best Practices Summary
+
+1. **Always use explicit types for public APIs**
+2. **Prefer interfaces over type aliases for object shapes**
+3. **Use union types for discriminated unions**
+4. **Implement proper error handling with type safety**
+5. **Use access modifiers appropriately in classes**
+6. **Create type guards for runtime validation**
+7. **Organize types in separate modules**
+8. **Use utility types to transform existing types**
+9. **Prefer async/await over raw Promises**
+10. **Use strict TypeScript configuration**

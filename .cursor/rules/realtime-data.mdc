@@ -1,0 +1,630 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# Real-time Data Guidelines
+
+Best practices for handling real-time data streams, WebSocket connections, and live market data in trading applications.
+
+## WebSocket Connection Management
+
+### Connection Lifecycle
+```typescript
+// ✅ Good - Robust WebSocket connection management
+export class WebSocketManager {
+  private wsClient: WebsocketClient | null = null;
+  private reconnectAttempts: number = 0;
+  private maxReconnectAttempts: number = 10;
+  private reconnectDelay: number = 1000;
+  private isConnected: boolean = false;
+  private clients: Set<WebSocket> = new Set();
+  private heartbeatInterval?: NodeJS.Timeout;
+
+  async initialize(): Promise<void> {
+    try {
+      await this.connect();
+      this.setupHeartbeat();
+      this.setupEventHandlers();
+    } catch (error) {
+      console.error('Failed to initialize WebSocket:', error);
+      throw error;
+    }
+  }
+
+  private async connect(): Promise<void> {
+    return new Promise((resolve, reject) => {
+      try {
+        this.wsClient = new WebsocketClient({
+          api_key: process.env.BINANCE_API_KEY!,
+          api_secret: process.env.BINANCE_API_SECRET!,
+          beautify: true,
+        });
+
+        this.wsClient.on('open', () => {
+          console.log('WebSocket connected');
+          this.isConnected = true;
+          this.reconnectAttempts = 0;
+          resolve();
+        });
+
+        this.wsClient.on('error', (error) => {
+          console.error('WebSocket error:', error);
+          this.isConnected = false;
+          if (this.reconnectAttempts === 0) {
+            reject(error);
+          }
+        });
+
+        this.wsClient.on('close', () => {
+          console.log('WebSocket disconnected');
+          this.isConnected = false;
+          this.scheduleReconnect();
+        });
+
+      } catch (error) {
+        reject(error);
+      }
+    });
+  }
+
+  private scheduleReconnect(): void {
+    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+      console.error('Max reconnection attempts reached');
+      return;
+    }
+
+    this.reconnectAttempts++;
+    const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1); // Exponential backoff
+
+    console.log(`Scheduling reconnection attempt ${this.reconnectAttempts} in ${delay}ms`);
+    
+    setTimeout(async () => {
+      try {
+        await this.connect();
+      } catch (error) {
+        console.error('Reconnection failed:', error);
+      }
+    }, delay);
+  }
+
+  private setupHeartbeat(): void {
+    this.heartbeatInterval = setInterval(() => {
+      if (this.isConnected) {
+        this.broadcastToClients({
+          type: 'heartbeat',
+          timestamp: Date.now()
+        });
+      }
+    }, 30000); // 30 seconds
+  }
+}
+```
+
+### Message Broadcasting
+```typescript
+// ✅ Good - Efficient message broadcasting with error handling
+export class MessageBroadcaster {
+  private clients: Set<WebSocket> = new Set();
+  private messageQueue: Array<{ message: any; timestamp: number }> = [];
+  private maxQueueSize: number = 1000;
+
+  addClient(ws: WebSocket): void {
+    this.clients.add(ws);
+    
+    // Send queued messages to new client
+    this.sendQueuedMessages(ws);
+
+    ws.on('close', () => {
+      this.clients.delete(ws);
+    });
+
+    ws.on('error', (error) => {
+      console.error('Client WebSocket error:', error);
+      this.clients.delete(ws);
+    });
+  }
+
+  broadcastMessage(message: any): void {
+    const messageWithTimestamp = {
+      ...message,
+      timestamp: Date.now()
+    };
+
+    // Add to queue for new clients
+    this.addToQueue(messageWithTimestamp);
+
+    // Broadcast to all connected clients
+    const messageStr = JSON.stringify(messageWithTimestamp);
+    const deadClients: WebSocket[] = [];
+
+    this.clients.forEach((client) => {
+      if (client.readyState === WebSocket.OPEN) {
+        try {
+          client.send(messageStr);
+        } catch (error) {
+          console.error('Error sending message to client:', error);
+          deadClients.push(client);
+        }
+      } else {
+        deadClients.push(client);
+      }
+    });
+
+    // Clean up dead connections
+    deadClients.forEach(client => this.clients.delete(client));
+  }
+
+  private addToQueue(message: any): void {
+    this.messageQueue.push(message);
+    
+    // Keep queue size manageable
+    if (this.messageQueue.length > this.maxQueueSize) {
+      this.messageQueue = this.messageQueue.slice(-this.maxQueueSize);
+    }
+  }
+
+  private sendQueuedMessages(ws: WebSocket): void {
+    // Send last 10 messages to new client
+    const recentMessages = this.messageQueue.slice(-10);
+    
+    recentMessages.forEach(({ message }) => {
+      if (ws.readyState === WebSocket.OPEN) {
+        try {
+          ws.send(JSON.stringify({
+            ...message,
+            isHistorical: true
+          }));
+        } catch (error) {
+          console.error('Error sending queued message:', error);
+        }
+      }
+    });
+  }
+}
+```
+
+## Data Stream Processing
+
+### Stream Aggregation
+```typescript
+// ✅ Good - Efficient data stream aggregation
+export class DataStreamAggregator {
+  private positionUpdates: Map<string, Position> = new Map();
+  private balanceUpdates: Map<string, Balance> = new Map();
+  private lastBroadcast: number = 0;
+  private broadcastInterval: number = 1000; // 1 second
+
+  constructor(private broadcaster: MessageBroadcaster) {
+    this.startBroadcastTimer();
+  }
+
+  processPositionUpdate(position: Position): void {
+    // Aggregate position updates by symbol
+    this.positionUpdates.set(position.symbol, position);
+  }
+
+  processBalanceUpdate(balance: Balance): void {
+    // Aggregate balance updates by asset
+    this.balanceUpdates.set(balance.asset, balance);
+  }
+
+  private startBroadcastTimer(): void {
+    setInterval(() => {
+      this.broadcastAggregatedData();
+    }, this.broadcastInterval);
+  }
+
+  private broadcastAggregatedData(): void {
+    const now = Date.now();
+    
+    // Only broadcast if we have updates
+    if (this.positionUpdates.size === 0 && this.balanceUpdates.size === 0) {
+      return;
+    }
+
+    // Broadcast position updates
+    if (this.positionUpdates.size > 0) {
+      this.broadcaster.broadcastMessage({
+        type: 'positions_update',
+        data: Array.from(this.positionUpdates.values()),
+        contractType: 'USDM'
+      });
+      this.positionUpdates.clear();
+    }
+
+    // Broadcast balance updates
+    if (this.balanceUpdates.size > 0) {
+      this.broadcaster.broadcastMessage({
+        type: 'balance_update',
+        data: Array.from(this.balanceUpdates.values()),
+        contractType: 'USDM'
+      });
+      this.balanceUpdates.clear();
+    }
+
+    this.lastBroadcast = now;
+  }
+}
+```
+
+### Rate Limiting for Streams
+```typescript
+// ✅ Good - Rate limiting for high-frequency data
+export class StreamRateLimiter {
+  private lastSent: Map<string, number> = new Map();
+  private minInterval: number;
+
+  constructor(minIntervalMs: number = 100) {
+    this.minInterval = minIntervalMs;
+  }
+
+  shouldSend(key: string): boolean {
+    const now = Date.now();
+    const lastSent = this.lastSent.get(key) || 0;
+    
+    if (now - lastSent >= this.minInterval) {
+      this.lastSent.set(key, now);
+      return true;
+    }
+    
+    return false;
+  }
+
+  // For price updates - only send if price changed significantly
+  shouldSendPriceUpdate(symbol: string, newPrice: number, threshold: number = 0.001): boolean {
+    const key = `price_${symbol}`;
+    const lastPriceKey = `lastPrice_${symbol}`;
+    
+    const lastPrice = this.lastSent.get(lastPriceKey) || 0;
+    const priceChange = Math.abs((newPrice - lastPrice) / lastPrice);
+    
+    if (priceChange >= threshold && this.shouldSend(key)) {
+      this.lastSent.set(lastPriceKey, newPrice);
+      return true;
+    }
+    
+    return false;
+  }
+}
+```
+
+## Data Validation & Integrity
+
+### Real-time Data Validation
+```typescript
+// ✅ Good - Validate streaming data integrity
+export class StreamDataValidator {
+  private lastSequenceNumbers: Map<string, number> = new Map();
+  private duplicateDetection: Map<string, Set<string>> = new Map();
+
+  validateMessage(stream: string, message: any): ValidationResult {
+    const errors: string[] = [];
+
+    // Check required fields
+    if (!message.timestamp) {
+      errors.push('Missing timestamp');
+    }
+
+    // Check timestamp is recent (within 5 seconds)
+    const now = Date.now();
+    const messageAge = now - message.timestamp;
+    if (messageAge > 5000) {
+      errors.push(`Message too old: ${messageAge}ms`);
+    }
+
+    // Check sequence number if present
+    if (message.sequenceNumber) {
+      const lastSeq = this.lastSequenceNumbers.get(stream) || 0;
+      if (message.sequenceNumber <= lastSeq) {
+        errors.push(`Out of order sequence: ${message.sequenceNumber} <= ${lastSeq}`);
+      } else {
+        this.lastSequenceNumbers.set(stream, message.sequenceNumber);
+      }
+    }
+
+    // Check for duplicates
+    const messageId = this.generateMessageId(message);
+    const streamDuplicates = this.duplicateDetection.get(stream) || new Set();
+    
+    if (streamDuplicates.has(messageId)) {
+      errors.push('Duplicate message detected');
+    } else {
+      streamDuplicates.add(messageId);
+      
+      // Keep only recent message IDs (last 1000)
+      if (streamDuplicates.size > 1000) {
+        const oldestIds = Array.from(streamDuplicates).slice(0, 100);
+        oldestIds.forEach(id => streamDuplicates.delete(id));
+      }
+      
+      this.duplicateDetection.set(stream, streamDuplicates);
+    }
+
+    return {
+      isValid: errors.length === 0,
+      errors
+    };
+  }
+
+  private generateMessageId(message: any): string {
+    // Create unique ID based on message content
+    const content = JSON.stringify({
+      timestamp: message.timestamp,
+      type: message.type,
+      symbol: message.symbol,
+      data: message.data
+    });
+    
+    return Buffer.from(content).toString('base64');
+  }
+}
+```
+
+## Performance Optimization
+
+### Memory Management for Streams
+```typescript
+// ✅ Good - Efficient memory management for streaming data
+export class StreamMemoryManager {
+  private dataBuffers: Map<string, CircularBuffer> = new Map();
+  private cleanupInterval?: NodeJS.Timeout;
+
+  constructor(private maxBufferSize: number = 1000) {
+    this.startCleanupTimer();
+  }
+
+  addData(stream: string, data: any): void {
+    let buffer = this.dataBuffers.get(stream);
+    
+    if (!buffer) {
+      buffer = new CircularBuffer(this.maxBufferSize);
+      this.dataBuffers.set(stream, buffer);
+    }
+    
+    buffer.add({
+      ...data,
+      timestamp: Date.now()
+    });
+  }
+
+  getRecentData(stream: string, count: number = 10): any[] {
+    const buffer = this.dataBuffers.get(stream);
+    return buffer ? buffer.getRecent(count) : [];
+  }
+
+  private startCleanupTimer(): void {
+    this.cleanupInterval = setInterval(() => {
+      this.cleanupOldData();
+    }, 60000); // Clean up every minute
+  }
+
+  private cleanupOldData(): void {
+    const cutoffTime = Date.now() - (5 * 60 * 1000); // 5 minutes ago
+    
+    this.dataBuffers.forEach((buffer, stream) => {
+      buffer.removeOlderThan(cutoffTime);
+      
+      // Remove empty buffers
+      if (buffer.isEmpty()) {
+        this.dataBuffers.delete(stream);
+      }
+    });
+  }
+
+  destroy(): void {
+    if (this.cleanupInterval) {
+      clearInterval(this.cleanupInterval);
+    }
+    this.dataBuffers.clear();
+  }
+}
+
+class CircularBuffer {
+  private buffer: any[] = [];
+  private head: number = 0;
+  private size: number = 0;
+
+  constructor(private capacity: number) {}
+
+  add(item: any): void {
+    this.buffer[this.head] = item;
+    this.head = (this.head + 1) % this.capacity;
+    
+    if (this.size < this.capacity) {
+      this.size++;
+    }
+  }
+
+  getRecent(count: number): any[] {
+    const result: any[] = [];
+    const actualCount = Math.min(count, this.size);
+    
+    for (let i = 0; i < actualCount; i++) {
+      const index = (this.head - 1 - i + this.capacity) % this.capacity;
+      result.push(this.buffer[index]);
+    }
+    
+    return result.reverse(); // Return in chronological order
+  }
+
+  removeOlderThan(timestamp: number): void {
+    // Simple implementation - in production, consider more efficient approach
+    const recentItems = this.buffer.filter(item => 
+      item && item.timestamp && item.timestamp >= timestamp
+    );
+    
+    this.buffer = new Array(this.capacity);
+    this.head = 0;
+    this.size = 0;
+    
+    recentItems.forEach(item => this.add(item));
+  }
+
+  isEmpty(): boolean {
+    return this.size === 0;
+  }
+}
+```
+
+## Error Handling & Recovery
+
+### Stream Error Recovery
+```typescript
+// ✅ Good - Robust error recovery for data streams
+export class StreamErrorRecovery {
+  private errorCounts: Map<string, number> = new Map();
+  private lastErrors: Map<string, number> = new Map();
+  private maxErrors: number = 5;
+  private errorWindow: number = 60000; // 1 minute
+
+  handleStreamError(stream: string, error: Error): boolean {
+    const now = Date.now();
+    const errorCount = this.errorCounts.get(stream) || 0;
+    const lastError = this.lastErrors.get(stream) || 0;
+
+    // Reset error count if enough time has passed
+    if (now - lastError > this.errorWindow) {
+      this.errorCounts.set(stream, 1);
+    } else {
+      this.errorCounts.set(stream, errorCount + 1);
+    }
+
+    this.lastErrors.set(stream, now);
+
+    const currentErrorCount = this.errorCounts.get(stream) || 0;
+
+    if (currentErrorCount >= this.maxErrors) {
+      console.error(`Stream ${stream} has too many errors (${currentErrorCount}), stopping`);
+      return false; // Stop stream
+    }
+
+    console.warn(`Stream ${stream} error (${currentErrorCount}/${this.maxErrors}):`, error.message);
+    return true; // Continue stream
+  }
+
+  resetErrorCount(stream: string): void {
+    this.errorCounts.delete(stream);
+    this.lastErrors.delete(stream);
+  }
+
+  getErrorCount(stream: string): number {
+    return this.errorCounts.get(stream) || 0;
+  }
+}
+```
+
+## Monitoring & Metrics
+
+### Stream Health Monitoring
+```typescript
+// ✅ Good - Monitor stream health and performance
+export class StreamHealthMonitor {
+  private metrics: Map<string, StreamMetrics> = new Map();
+  private monitoringInterval?: NodeJS.Timeout;
+
+  constructor() {
+    this.startMonitoring();
+  }
+
+  recordMessage(stream: string, messageSize: number): void {
+    let metrics = this.metrics.get(stream);
+    
+    if (!metrics) {
+      metrics = {
+        messageCount: 0,
+        totalBytes: 0,
+        lastMessage: 0,
+        averageLatency: 0,
+        errors: 0
+      };
+      this.metrics.set(stream, metrics);
+    }
+
+    metrics.messageCount++;
+    metrics.totalBytes += messageSize;
+    metrics.lastMessage = Date.now();
+  }
+
+  recordLatency(stream: string, latency: number): void {
+    const metrics = this.metrics.get(stream);
+    if (metrics) {
+      // Simple moving average
+      metrics.averageLatency = (metrics.averageLatency * 0.9) + (latency * 0.1);
+    }
+  }
+
+  recordError(stream: string): void {
+    const metrics = this.metrics.get(stream);
+    if (metrics) {
+      metrics.errors++;
+    }
+  }
+
+  getHealthReport(): Record<string, any> {
+    const report: Record<string, any> = {};
+    const now = Date.now();
+
+    this.metrics.forEach((metrics, stream) => {
+      const timeSinceLastMessage = now - metrics.lastMessage;
+      
+      report[stream] = {
+        isHealthy: timeSinceLastMessage < 30000, // Healthy if message within 30s
+        messageCount: metrics.messageCount,
+        totalBytes: metrics.totalBytes,
+        averageLatency: Math.round(metrics.averageLatency),
+        errors: metrics.errors,
+        timeSinceLastMessage,
+        messagesPerSecond: this.calculateMessagesPerSecond(stream)
+      };
+    });
+
+    return report;
+  }
+
+  private startMonitoring(): void {
+    this.monitoringInterval = setInterval(() => {
+      const report = this.getHealthReport();
+      console.log('Stream Health Report:', JSON.stringify(report, null, 2));
+    }, 30000); // Report every 30 seconds
+  }
+
+  private calculateMessagesPerSecond(stream: string): number {
+    const metrics = this.metrics.get(stream);
+    if (!metrics) return 0;
+
+    const now = Date.now();
+    const timeWindow = 60000; // 1 minute
+    const timeSinceStart = now - (metrics.lastMessage - timeWindow);
+    
+    return metrics.messageCount / (timeSinceStart / 1000);
+  }
+
+  destroy(): void {
+    if (this.monitoringInterval) {
+      clearInterval(this.monitoringInterval);
+    }
+  }
+}
+
+interface StreamMetrics {
+  messageCount: number;
+  totalBytes: number;
+  lastMessage: number;
+  averageLatency: number;
+  errors: number;
+}
+```
+
+## Best Practices Summary
+
+1. **Implement robust connection management with automatic reconnection**
+2. **Use message aggregation to reduce bandwidth**
+3. **Apply rate limiting to prevent overwhelming clients**
+4. **Validate all streaming data for integrity**
+5. **Implement efficient memory management for buffers**
+6. **Handle errors gracefully with recovery mechanisms**
+7. **Monitor stream health and performance metrics**
+8. **Use circular buffers for historical data**
+9. **Implement duplicate detection for reliability**
+10. **Provide heartbeat mechanisms for connection health**

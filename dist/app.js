@@ -1,236 +1,168 @@
 "use strict";
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    var desc = Object.getOwnPropertyDescriptor(m, k);
-    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-      desc = { enumerable: true, get: function() { return m[k]; } };
-    }
-    Object.defineProperty(o, k2, desc);
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
-var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function (o) {
-            var ar = [];
-            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
-            return ar;
-        };
-        return ownKeys(o);
-    };
-    return function (mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        __setModuleDefault(result, mod);
-        return result;
-    };
-})();
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = __importDefault(require("express"));
 const cors_1 = __importDefault(require("cors"));
-const WebSocket = __importStar(require("ws"));
-const http = __importStar(require("http"));
+const helmet_1 = __importDefault(require("helmet"));
+const express_rate_limit_1 = __importDefault(require("express-rate-limit"));
+const ws_1 = __importDefault(require("ws"));
+const http_1 = __importDefault(require("http"));
 const services_1 = __importDefault(require("./services"));
 const config_1 = __importDefault(require("./config"));
+const errorHandler_1 = require("./middleware/errorHandler");
+const routes_1 = __importDefault(require("./routes"));
 const app = (0, express_1.default)();
-const server = http.createServer(app);
-const wss = new WebSocket.Server({ server });
+const server = http_1.default.createServer(app);
+const wss = new ws_1.default.Server({ server });
 // Initialize services
-const serviceManager = new services_1.default();
-// Middleware
-app.use((0, cors_1.default)(config_1.default.cors));
-app.use(express_1.default.json());
-// Health check endpoint
-app.get('/health', (req, res) => {
-    const status = serviceManager.getStatus();
-    res.json({
-        status: 'ok',
-        timestamp: new Date().toISOString(),
-        services: status
-    });
-});
-// Binance API Routes
+const serviceManager = services_1.default.getInstance();
 const binanceService = serviceManager.getBinanceService();
-// Get account information
-app.get('/api/binance/account', async (req, res) => {
-    try {
-        const result = await binanceService.getAccountInfo();
-        res.json(result);
-    }
-    catch (error) {
-        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-        res.status(500).json({ success: false, error: errorMessage });
-    }
+// Security middleware
+app.use((0, helmet_1.default)({
+    contentSecurityPolicy: {
+        directives: {
+            defaultSrc: ["'self'"],
+            styleSrc: ["'self'", "'unsafe-inline'"],
+            scriptSrc: ["'self'"],
+            imgSrc: ["'self'", "data:", "https:"],
+        },
+    },
+}));
+// Rate limiting
+const limiter = (0, express_rate_limit_1.default)({
+    windowMs: config_1.default.rateLimit.windowMs,
+    max: config_1.default.rateLimit.max,
+    message: {
+        success: false,
+        error: 'Too many requests, please try again later',
+        code: 'RATE_LIMIT_EXCEEDED',
+        timestamp: Date.now()
+    },
+    standardHeaders: true,
+    legacyHeaders: false,
 });
-// Get positions
-app.get('/api/binance/positions', async (req, res) => {
-    try {
-        const result = await binanceService.getPositions();
-        res.json(result);
-    }
-    catch (error) {
-        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-        res.status(500).json({ success: false, error: errorMessage });
-    }
+app.use('/api/', limiter);
+// CORS configuration
+app.use((0, cors_1.default)(config_1.default.cors));
+// Body parsing middleware
+app.use(express_1.default.json({ limit: '10mb' }));
+app.use(express_1.default.urlencoded({ extended: true, limit: '10mb' }));
+// Request logging middleware
+app.use((req, res, next) => {
+    console.log(`${new Date().toISOString()} - ${req.method} ${req.path} - ${req.ip}`);
+    next();
 });
-// Get open orders
-app.get('/api/binance/orders', async (req, res) => {
-    try {
-        const symbol = req.query.symbol;
-        const result = await binanceService.getOpenOrders(symbol);
-        res.json(result);
-    }
-    catch (error) {
-        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-        res.status(500).json({ success: false, error: errorMessage });
-    }
-});
-// Place new order
-app.post('/api/binance/orders', async (req, res) => {
-    try {
-        const result = await binanceService.placeOrder(req.body);
-        res.json(result);
-    }
-    catch (error) {
-        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-        res.status(500).json({ success: false, error: errorMessage });
-    }
-});
-// Cancel specific order
-app.delete('/api/binance/orders/:symbol/:orderId', async (req, res) => {
-    try {
-        const { symbol, orderId } = req.params;
-        const result = await binanceService.cancelOrder(symbol, orderId);
-        res.json(result);
-    }
-    catch (error) {
-        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-        res.status(500).json({ success: false, error: errorMessage });
-    }
-});
-// Cancel all orders for symbol
-app.delete('/api/binance/orders/:symbol', async (req, res) => {
-    try {
-        const { symbol } = req.params;
-        const result = await binanceService.cancelAllOrders(symbol);
-        res.json(result);
-    }
-    catch (error) {
-        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-        res.status(500).json({ success: false, error: errorMessage });
-    }
-});
-// Set Take Profit and Stop Loss
-app.post('/api/binance/tpsl', async (req, res) => {
-    try {
-        const { symbol, side, takeProfitPrice, stopLossPrice, quantity } = req.body;
-        const result = await binanceService.setTPSL(symbol, side, takeProfitPrice, stopLossPrice, quantity);
-        res.json(result);
-    }
-    catch (error) {
-        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-        res.status(500).json({ success: false, error: errorMessage });
-    }
-});
-// Get balance
-app.get('/api/binance/balance/:asset?', async (req, res) => {
-    try {
-        const asset = req.params.asset;
-        const result = await binanceService.getBalance(asset);
-        res.json(result);
-    }
-    catch (error) {
-        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-        res.status(500).json({ success: false, error: errorMessage });
-    }
-});
-// Get price
-app.get('/api/binance/price/:symbol?', async (req, res) => {
-    try {
-        const symbol = req.params.symbol;
-        const result = symbol
-            ? await binanceService.getPrice(symbol)
-            : await binanceService.getAllPrices();
-        res.json(result);
-    }
-    catch (error) {
-        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-        res.status(500).json({ success: false, error: errorMessage });
-    }
-});
+// Health check endpoint
+app.get('/health', (0, errorHandler_1.asyncHandler)(async (req, res) => {
+    const status = binanceService.getConnectionStatus();
+    const response = {
+        success: true,
+        data: {
+            status: 'healthy',
+            timestamp: new Date().toISOString(),
+            services: status,
+            uptime: process.uptime(),
+            memory: process.memoryUsage(),
+            version: process.env.npm_package_version || '1.0.0'
+        },
+        timestamp: Date.now()
+    };
+    res.json(response);
+}));
+// Use organized routes
+app.use(routes_1.default);
 // WebSocket connection handling
-wss.on('connection', (ws, req) => {
-    console.log('New WebSocket connection from:', req.socket.remoteAddress);
-    // Add client to Binance service for real-time updates
+wss.on('connection', (ws) => {
+    console.log('New WebSocket client connected');
+    // Add client to all service managers
     binanceService.addWebSocketClient(ws);
-    // Handle incoming messages
+    // Send welcome message
+    ws.send(JSON.stringify({
+        type: 'welcome',
+        message: 'Connected to Binance Trading API WebSocket',
+        timestamp: Date.now()
+    }));
     ws.on('message', (message) => {
         try {
             const data = JSON.parse(message.toString());
-            console.log('Received message from client:', data);
-            // Handle ping/pong for heartbeat
+            console.log('WebSocket message received:', data);
+            // Handle client messages if needed
             if (data.type === 'ping') {
-                ws.send(JSON.stringify({ type: 'pong', timestamp: Date.now() }));
+                ws.send(JSON.stringify({
+                    type: 'pong',
+                    timestamp: Date.now()
+                }));
             }
         }
         catch (error) {
             console.error('Error parsing WebSocket message:', error);
         }
     });
+    ws.on('close', () => {
+        console.log('WebSocket client disconnected');
+    });
     ws.on('error', (error) => {
-        console.error('WebSocket error:', error);
+        console.error('WebSocket client error:', error);
     });
 });
-// Error handling middleware
-app.use((error, req, res, next) => {
-    console.error('Express error:', error);
-    res.status(500).json({
-        success: false,
-        error: 'Internal server error'
-    });
-});
-// 404 handler
-app.use((req, res) => {
-    res.status(404).json({
-        success: false,
-        error: 'Endpoint not found'
-    });
-});
-// Graceful shutdown
-process.on('SIGTERM', async () => {
-    console.log('SIGTERM received, shutting down gracefully...');
-    await serviceManager.shutdown();
-    server.close(() => {
-        console.log('Server closed');
+// Error handling middleware (must be last)
+app.use(errorHandler_1.notFoundHandler);
+app.use(errorHandler_1.errorHandler);
+// Graceful shutdown handling
+const gracefulShutdown = async (signal) => {
+    console.log(`Received ${signal}. Starting graceful shutdown...`);
+    try {
+        // Close WebSocket server
+        wss.close(() => {
+            console.log('WebSocket server closed');
+        });
+        // Close HTTP server
+        server.close(() => {
+            console.log('HTTP server closed');
+        });
+        // Disconnect services
+        await binanceService.disconnect();
+        console.log('Graceful shutdown completed');
         process.exit(0);
-    });
+    }
+    catch (error) {
+        console.error('Error during graceful shutdown:', error);
+        process.exit(1);
+    }
+};
+// Handle shutdown signals
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+// Handle uncaught exceptions
+process.on('uncaughtException', (error) => {
+    console.error('Uncaught Exception:', error);
+    gracefulShutdown('uncaughtException');
 });
-process.on('SIGINT', async () => {
-    console.log('SIGINT received, shutting down gracefully...');
-    await serviceManager.shutdown();
-    server.close(() => {
-        console.log('Server closed');
-        process.exit(0);
-    });
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+    gracefulShutdown('unhandledRejection');
 });
-// Initialize services and start server
+// Start server function
 async function startServer() {
     try {
         console.log('Starting server...');
+        // Initialize services
         await serviceManager.initialize();
+        // Start HTTP server
         server.listen(config_1.default.port, () => {
-            console.log(`Server running on port ${config_1.default.port}`);
-            console.log(`WebSocket server ready for connections`);
+            console.log(`🚀 Server running on port ${config_1.default.port}`);
+            console.log(`📊 Environment: ${config_1.default.nodeEnv}`);
+            console.log(`🔗 WebSocket server ready`);
+            console.log(`💹 Binance services initialized`);
+            if (config_1.default.nodeEnv === 'development') {
+                console.log(`🌐 Health check: http://localhost:${config_1.default.port}/health`);
+                console.log(`📈 Spot API: http://localhost:${config_1.default.port}/api/binance/spot/`);
+                console.log(`⚡ Futures API: http://localhost:${config_1.default.port}/api/binance/futures/`);
+                console.log(`🪙 COIN-M API: http://localhost:${config_1.default.port}/api/binance/coinm/`);
+                console.log(`🔌 WebSocket API: http://localhost:${config_1.default.port}/api/binance/websocket/`);
+            }
         });
     }
     catch (error) {
@@ -238,6 +170,9 @@ async function startServer() {
         process.exit(1);
     }
 }
-startServer();
-module.exports = { app, server, serviceManager };
+// Start the server
+if (require.main === module) {
+    startServer();
+}
+exports.default = app;
 //# sourceMappingURL=app.js.map

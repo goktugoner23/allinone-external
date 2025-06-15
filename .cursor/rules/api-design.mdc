@@ -1,0 +1,416 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+# API Design Guidelines
+
+Best practices for designing RESTful APIs and WebSocket implementations for trading applications and financial services.
+
+## RESTful API Design
+
+### Resource Naming Conventions
+```typescript
+// ✅ Good - Clear, hierarchical resource naming
+GET    /api/binance/account           // Get USD-M account info
+GET    /api/binance/positions         // Get USD-M positions
+GET    /api/binance/orders            // Get USD-M orders
+POST   /api/binance/orders            // Place USD-M order
+DELETE /api/binance/orders/:symbol/:orderId  // Cancel specific order
+
+GET    /api/binance/coinm/account     // Get COIN-M account info
+GET    /api/binance/coinm/positions   // Get COIN-M positions
+POST   /api/binance/coinm/orders      // Place COIN-M order
+
+GET    /api/binance/spot/account      // Get Spot account info
+GET    /api/binance/spot/balances     // Get Spot balances
+```
+
+### HTTP Status Codes
+```typescript
+// ✅ Good - Appropriate status codes
+app.post('/api/orders', async (req, res) => {
+  try {
+    const result = await orderService.placeOrder(req.body);
+    
+    if (result.success) {
+      res.status(201).json(result);  // 201 Created
+    } else {
+      res.status(400).json(result);  // 400 Bad Request
+    }
+  } catch (error) {
+    res.status(500).json({           // 500 Internal Server Error
+      success: false,
+      error: 'Internal server error'
+    });
+  }
+});
+
+// Other common status codes:
+// 200 OK - Successful GET, PUT, PATCH
+// 204 No Content - Successful DELETE
+// 401 Unauthorized - Authentication required
+// 403 Forbidden - Insufficient permissions
+// 404 Not Found - Resource not found
+// 429 Too Many Requests - Rate limit exceeded
+```
+
+### Consistent Response Format
+```typescript
+// ✅ Good - Standardized response structure
+interface ApiResponse<T = any> {
+  success: boolean;
+  data?: T;
+  error?: string;
+  timestamp?: number;
+  requestId?: string;
+}
+
+// Success response
+{
+  "success": true,
+  "data": {
+    "orderId": 123456,
+    "symbol": "BTCUSDT",
+    "status": "FILLED"
+  },
+  "timestamp": 1640995200000
+}
+
+// Error response
+{
+  "success": false,
+  "error": "Insufficient balance",
+  "timestamp": 1640995200000,
+  "requestId": "req_abc123"
+}
+```
+
+### Query Parameters & Filtering
+```typescript
+// ✅ Good - Flexible query parameters
+GET /api/orders?symbol=BTCUSDT&status=OPEN&limit=50&offset=0
+GET /api/positions?contractType=USDM&minSize=0.001
+GET /api/prices?symbols=BTCUSDT,ETHUSDT&contractType=SPOT
+
+app.get('/api/orders', async (req, res) => {
+  const {
+    symbol,
+    status,
+    limit = 50,
+    offset = 0,
+    contractType = 'USDM'
+  } = req.query;
+
+  const orders = await orderService.getOrders({
+    symbol: symbol as string,
+    status: status as OrderStatus,
+    limit: parseInt(limit as string),
+    offset: parseInt(offset as string),
+    contractType: contractType as ContractType
+  });
+
+  res.json({
+    success: true,
+    data: orders,
+    pagination: {
+      limit,
+      offset,
+      total: orders.length
+    }
+  });
+});
+```
+
+## WebSocket API Design
+
+### Message Structure
+```typescript
+// ✅ Good - Consistent WebSocket message format
+interface WebSocketMessage<T = any> {
+  type: string;
+  data?: T;
+  timestamp: number;
+  contractType?: 'USDM' | 'COINM' | 'SPOT';
+  error?: string;
+}
+
+// Position update message
+{
+  "type": "positions_update",
+  "data": [
+    {
+      "symbol": "BTCUSDT",
+      "positionAmount": 0.001,
+      "unrealizedProfit": 5.25,
+      "contractType": "USDM"
+    }
+  ],
+  "timestamp": 1640995200000
+}
+
+// Connection status message
+{
+  "type": "connection",
+  "data": {
+    "status": "connected",
+    "services": {
+      "usdm": { "isConnected": true },
+      "coinm": { "isConnected": true }
+    }
+  },
+  "timestamp": 1640995200000
+}
+```
+
+### Message Types
+```typescript
+// ✅ Good - Well-defined message types
+enum WebSocketMessageType {
+  // Connection management
+  CONNECTION = 'connection',
+  HEARTBEAT = 'heartbeat',
+  
+  // USD-M Futures
+  POSITIONS_UPDATE = 'positions_update',
+  BALANCE_UPDATE = 'balance_update',
+  ORDER_UPDATE = 'order_update',
+  
+  // COIN-M Futures
+  COINM_POSITIONS_UPDATE = 'coinm_positions_update',
+  COINM_BALANCE_UPDATE = 'coinm_balance_update',
+  COINM_ORDER_UPDATE = 'coinm_order_update',
+  
+  // Spot
+  SPOT_BALANCE_UPDATE = 'spot_balance_update',
+  SPOT_ORDER_UPDATE = 'spot_order_update',
+  
+  // Errors
+  ERROR = 'error'
+}
+```
+
+### Client-Server Communication
+```typescript
+// ✅ Good - Handle client messages
+wss.on('connection', (ws: WebSocket, req: http.IncomingMessage) => {
+  console.log('New WebSocket connection');
+  
+  // Add client to all relevant managers
+  binanceService.addWebSocketClient(ws);
+
+  ws.on('message', (message: WebSocket.RawData) => {
+    try {
+      const data = JSON.parse(message.toString());
+      
+      switch (data.type) {
+        case 'ping':
+          ws.send(JSON.stringify({
+            type: 'pong',
+            timestamp: Date.now()
+          }));
+          break;
+          
+        case 'subscribe':
+          handleSubscription(ws, data);
+          break;
+          
+        case 'unsubscribe':
+          handleUnsubscription(ws, data);
+          break;
+          
+        default:
+          ws.send(JSON.stringify({
+            type: 'error',
+            error: `Unknown message type: ${data.type}`,
+            timestamp: Date.now()
+          }));
+      }
+    } catch (error) {
+      console.error('Error parsing WebSocket message:', error);
+      ws.send(JSON.stringify({
+        type: 'error',
+        error: 'Invalid message format',
+        timestamp: Date.now()
+      }));
+    }
+  });
+});
+```
+
+## Authentication & Authorization
+
+### API Key Authentication
+```typescript
+// ✅ Good - Secure API key handling
+interface AuthenticatedRequest extends Request {
+  apiKey?: string;
+  userId?: string;
+}
+
+const authenticateApiKey = async (
+  req: AuthenticatedRequest, 
+  res: Response, 
+  next: NextFunction
+) => {
+  const apiKey = req.headers['x-api-key'] as string;
+  
+  if (!apiKey) {
+    return res.status(401).json({
+      success: false,
+      error: 'API key required'
+    });
+  }
+  
+  try {
+    const user = await validateApiKey(apiKey);
+    req.apiKey = apiKey;
+    req.userId = user.id;
+    next();
+  } catch (error) {
+    res.status(401).json({
+      success: false,
+      error: 'Invalid API key'
+    });
+  }
+};
+
+// Apply to protected routes
+app.use('/api/orders', authenticateApiKey);
+app.use('/api/account', authenticateApiKey);
+```
+
+## Rate Limiting & Throttling
+
+### Tiered Rate Limiting
+```typescript
+// ✅ Good - Different limits for different endpoints
+import rateLimit from 'express-rate-limit';
+
+// General API rate limit
+const generalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 1000, // 1000 requests per window
+  message: { success: false, error: 'Rate limit exceeded' }
+});
+
+// Trading endpoints - more restrictive
+const tradingLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000, // 1 minute
+  max: 100, // 100 requests per minute
+  message: { success: false, error: 'Trading rate limit exceeded' }
+});
+
+// Account info - less restrictive
+const accountLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000, // 1 minute
+  max: 300, // 300 requests per minute
+  message: { success: false, error: 'Account rate limit exceeded' }
+});
+
+app.use('/api/', generalLimiter);
+app.use('/api/orders', tradingLimiter);
+app.use('/api/account', accountLimiter);
+```
+
+## Error Handling
+
+### Comprehensive Error Responses
+```typescript
+// ✅ Good - Detailed error information
+enum ErrorCode {
+  VALIDATION_ERROR = 'VALIDATION_ERROR',
+  INSUFFICIENT_BALANCE = 'INSUFFICIENT_BALANCE',
+  INVALID_SYMBOL = 'INVALID_SYMBOL',
+  ORDER_NOT_FOUND = 'ORDER_NOT_FOUND',
+  RATE_LIMIT_EXCEEDED = 'RATE_LIMIT_EXCEEDED',
+  EXTERNAL_API_ERROR = 'EXTERNAL_API_ERROR'
+}
+
+interface ApiError {
+  success: false;
+  error: string;
+  errorCode: ErrorCode;
+  details?: any;
+  timestamp: number;
+  requestId: string;
+}
+
+// Usage
+const handleOrderError = (error: any, req: Request, res: Response) => {
+  const response: ApiError = {
+    success: false,
+    error: error.message,
+    errorCode: mapErrorToCode(error),
+    timestamp: Date.now(),
+    requestId: req.headers['x-request-id'] as string || generateRequestId()
+  };
+  
+  if (error.name === 'ValidationError') {
+    response.details = error.details;
+    return res.status(400).json(response);
+  }
+  
+  if (error.message.includes('insufficient balance')) {
+    response.errorCode = ErrorCode.INSUFFICIENT_BALANCE;
+    return res.status(400).json(response);
+  }
+  
+  // Default to 500 for unknown errors
+  res.status(500).json(response);
+};
+```
+
+## Documentation & Versioning
+
+### API Versioning
+```typescript
+// ✅ Good - Version your APIs
+app.use('/api/v1/binance', binanceV1Routes);
+app.use('/api/v2/binance', binanceV2Routes);
+
+// Or use header-based versioning
+const versionMiddleware = (req: Request, res: Response, next: NextFunction) => {
+  const version = req.headers['api-version'] || 'v1';
+  req.apiVersion = version;
+  next();
+};
+```
+
+### OpenAPI/Swagger Documentation
+```typescript
+// ✅ Good - Document your APIs
+/**
+ * @swagger
+ * /api/orders:
+ *   post:
+ *     summary: Place a new order
+ *     tags: [Orders]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/OrderData'
+ *     responses:
+ *       201:
+ *         description: Order placed successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ApiResponse'
+ */
+```
+
+## Best Practices Summary
+
+1. **Use consistent resource naming and HTTP methods**
+2. **Implement standardized response formats**
+3. **Provide comprehensive error handling**
+4. **Use appropriate HTTP status codes**
+5. **Implement proper authentication and authorization**
+6. **Apply rate limiting to protect your API**
+7. **Version your APIs for backward compatibility**
+8. **Document your APIs thoroughly**
+9. **Use WebSockets for real-time data**
+10. **Implement proper logging and monitoring**

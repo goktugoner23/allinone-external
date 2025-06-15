@@ -1,0 +1,564 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+# TypeScript & Node.js Development Rules
+
+Comprehensive coding and architecture guidelines for robust TypeScript and Node.js backend development, particularly for trading APIs and financial services.
+
+## Language Features & Syntax
+
+### Use Explicit Types for Public APIs
+**Description**: Public and exported functions should explicitly declare return types and parameter types.
+**Rationale**: Makes code self-documenting, helps with refactoring, and clarifies the intended API contract.
+**Enforce**: true
+
+```typescript
+// ✅ Good - Explicit types for public API
+export async function getAccountInfo(): Promise<ApiResponse<AccountInfo>> {
+  // implementation
+}
+
+export function calculatePnL(
+  entryPrice: number,
+  currentPrice: number,
+  quantity: number,
+  side: 'LONG' | 'SHORT'
+): number {
+  // implementation
+}
+
+// ❌ Avoid - Implicit return types for public APIs
+export async function getAccountInfo() {
+  // implementation
+}
+```
+
+### Use Async/Await Over Promises
+**Description**: Favor async/await syntax over raw Promise chains for better readability.
+**Rationale**: Keeps the code more readable and easier to debug, especially with error handling.
+**Enforce**: true
+
+```typescript
+// ✅ Good - Async/await syntax
+async function placeOrder(orderData: OrderData): Promise<Order> {
+  try {
+    const validation = await validateOrder(orderData);
+    const order = await binanceClient.submitOrder(orderData);
+    return order;
+  } catch (error) {
+    throw new OrderError('Failed to place order', error);
+  }
+}
+
+// ❌ Avoid - Promise chains
+function placeOrder(orderData: OrderData): Promise<Order> {
+  return validateOrder(orderData)
+    .then(() => binanceClient.submitOrder(orderData))
+    .catch(error => {
+      throw new OrderError('Failed to place order', error);
+    });
+}
+```
+
+### Use Immutable Data Patterns
+**Description**: Prefer immutable data structures and avoid mutating objects directly.
+**Rationale**: Reduces side effects and improves maintainability, especially important for financial data.
+**Enforce**: recommended
+
+```typescript
+// ✅ Good - Immutable updates
+const updatePosition = (position: Position, newPrice: number): Position => {
+  return {
+    ...position,
+    currentPrice: newPrice,
+    unrealizedPnL: calculatePnL(position.entryPrice, newPrice, position.quantity)
+  };
+};
+
+// ❌ Avoid - Direct mutation
+const updatePosition = (position: Position, newPrice: number): void => {
+  position.currentPrice = newPrice;
+  position.unrealizedPnL = calculatePnL(position.entryPrice, newPrice, position.quantity);
+};
+```
+
+### Use Type Guards for Runtime Safety
+**Description**: Create type guards for runtime type checking, especially for external API responses.
+**Rationale**: Ensures type safety when dealing with external data sources and prevents runtime errors.
+**Enforce**: recommended
+
+```typescript
+// ✅ Good - Type guards for runtime safety
+interface OrderResponse {
+  orderId: number;
+  symbol: string;
+  status: string;
+  quantity: number;
+}
+
+function isValidOrderResponse(data: any): data is OrderResponse {
+  return (
+    typeof data === 'object' &&
+    typeof data.orderId === 'number' &&
+    typeof data.symbol === 'string' &&
+    typeof data.status === 'string' &&
+    typeof data.quantity === 'number'
+  );
+}
+
+// Usage
+const response = await binanceAPI.getOrder(orderId);
+if (isValidOrderResponse(response)) {
+  // TypeScript knows response is OrderResponse
+  processOrder(response);
+} else {
+  throw new ValidationError('Invalid order response format');
+}
+```
+
+## Naming Conventions
+
+### Use camelCase for Variables and Functions
+**Description**: Variables and functions should use camelCase naming convention.
+**Enforce**: true
+
+```typescript
+// ✅ Good
+const accountBalance = 1000.50;
+const isConnected = true;
+function calculateProfit() { }
+async function getPositions() { }
+
+// ❌ Avoid
+const account_balance = 1000.50;
+const IsConnected = true;
+function Calculate_Profit() { }
+```
+
+### Use PascalCase for Classes and Interfaces
+**Description**: Classes, interfaces, and types should use PascalCase.
+**Enforce**: true
+
+```typescript
+// ✅ Good
+class BinanceWebSocketManager { }
+interface ApiResponse<T> { }
+type OrderStatus = 'NEW' | 'FILLED' | 'CANCELED';
+
+// ❌ Avoid
+class binanceWebSocketManager { }
+interface apiResponse<T> { }
+```
+
+### Use UPPER_SNAKE_CASE for Constants
+**Description**: Constants should be in upper snake case.
+**Enforce**: true
+
+```typescript
+// ✅ Good
+const MAX_RECONNECT_ATTEMPTS = 10;
+const DEFAULT_TIMEOUT = 30000;
+const API_BASE_URL = 'https://api.binance.com';
+
+// ❌ Avoid
+const maxReconnectAttempts = 10;
+const defaultTimeout = 30000;
+```
+
+## Node.js Specific Guidelines
+
+### Use Environment Variables for Configuration
+**Description**: Always use environment variables for configuration, never hardcode secrets.
+**Rationale**: Ensures security and allows for different configurations across environments.
+**Enforce**: true
+
+```typescript
+// ✅ Good - Environment variables
+const config = {
+  port: parseInt(process.env.PORT || '3000'),
+  binance: {
+    apiKey: process.env.BINANCE_API_KEY!,
+    apiSecret: process.env.BINANCE_API_SECRET!,
+  },
+  database: {
+    url: process.env.DATABASE_URL!,
+  },
+};
+
+// ❌ Avoid - Hardcoded values
+const config = {
+  port: 3000,
+  binance: {
+    apiKey: 'hardcoded_key', // Never do this!
+    apiSecret: 'hardcoded_secret',
+  },
+};
+```
+
+### Use Proper Error Handling Middleware
+**Description**: Implement centralized error handling middleware for Express applications.
+**Rationale**: Ensures consistent error responses and proper logging across the application.
+**Enforce**: true
+
+```typescript
+// ✅ Good - Centralized error handling
+app.use((error: Error, req: Request, res: Response, next: NextFunction) => {
+  logger.error('Express error:', error);
+  
+  if (error instanceof ValidationError) {
+    return res.status(400).json({
+      success: false,
+      error: error.message,
+      code: 'VALIDATION_ERROR'
+    });
+  }
+  
+  res.status(500).json({
+    success: false,
+    error: 'Internal server error'
+  });
+});
+```
+
+### Avoid Blocking the Event Loop
+**Description**: Long-running tasks should never block the main thread.
+**Rationale**: Ensures the application remains responsive and can handle concurrent requests.
+**Enforce**: true
+
+```typescript
+// ✅ Good - Non-blocking operations
+async function processLargeDataset(data: any[]): Promise<void> {
+  for (let i = 0; i < data.length; i++) {
+    await processItem(data[i]);
+    
+    // Yield control periodically
+    if (i % 1000 === 0) {
+      await new Promise(resolve => setImmediate(resolve));
+    }
+  }
+}
+
+// ❌ Avoid - Blocking operations
+function processLargeDataset(data: any[]): void {
+  for (const item of data) {
+    // Synchronous processing blocks event loop
+    processItemSync(item);
+  }
+}
+```
+
+### Use Structured Logging
+**Description**: Use structured logging with proper context and log levels.
+**Rationale**: Improves debugging and monitoring capabilities in production.
+**Enforce**: recommended
+
+```typescript
+// ✅ Good - Structured logging
+logger.info('Order placed successfully', {
+  orderId: order.orderId,
+  symbol: order.symbol,
+  quantity: order.quantity,
+  userId: req.user.id,
+  timestamp: Date.now()
+});
+
+// ❌ Avoid - Unstructured logging
+console.log(`Order ${order.orderId} placed for ${order.symbol}`);
+```
+
+## API Design Guidelines
+
+### Use Consistent Response Format
+**Description**: All API endpoints should return responses in a consistent format.
+**Rationale**: Makes the API predictable and easier to consume by clients.
+**Enforce**: true
+
+```typescript
+// ✅ Good - Consistent response format
+interface ApiResponse<T = any> {
+  success: boolean;
+  data?: T;
+  error?: string;
+  timestamp: number;
+}
+
+// Success response
+{
+  "success": true,
+  "data": { "orderId": 123456 },
+  "timestamp": 1640995200000
+}
+
+// Error response
+{
+  "success": false,
+  "error": "Insufficient balance",
+  "timestamp": 1640995200000
+}
+```
+
+### Implement Proper Input Validation
+**Description**: Validate all inputs using a schema validation library like Joi or Zod.
+**Rationale**: Prevents invalid data from entering the system and provides clear error messages.
+**Enforce**: true
+
+```typescript
+// ✅ Good - Schema validation
+const orderSchema = Joi.object({
+  symbol: Joi.string().pattern(/^[A-Z]{3,10}USDT?$/).required(),
+  side: Joi.string().valid('BUY', 'SELL').required(),
+  quantity: Joi.number().positive().required(),
+  price: Joi.number().positive().optional()
+});
+
+app.post('/api/orders', (req, res, next) => {
+  const { error, value } = orderSchema.validate(req.body);
+  if (error) {
+    return res.status(400).json({
+      success: false,
+      error: 'Validation failed',
+      details: error.details
+    });
+  }
+  req.body = value;
+  next();
+});
+```
+
+### Use Appropriate HTTP Status Codes
+**Description**: Return appropriate HTTP status codes for different scenarios.
+**Rationale**: Follows REST conventions and helps clients handle responses correctly.
+**Enforce**: true
+
+```typescript
+// ✅ Good - Appropriate status codes
+app.post('/api/orders', async (req, res) => {
+  try {
+    const order = await orderService.placeOrder(req.body);
+    res.status(201).json({ success: true, data: order }); // 201 Created
+  } catch (error) {
+    if (error instanceof ValidationError) {
+      res.status(400).json({ success: false, error: error.message }); // 400 Bad Request
+    } else if (error instanceof InsufficientBalanceError) {
+      res.status(400).json({ success: false, error: error.message }); // 400 Bad Request
+    } else {
+      res.status(500).json({ success: false, error: 'Internal server error' }); // 500 Internal Server Error
+    }
+  }
+});
+```
+
+## Security Best Practices
+
+### Never Expose Sensitive Information
+**Description**: Never log or return sensitive information like API keys or passwords.
+**Rationale**: Protects sensitive data from being exposed in logs or API responses.
+**Enforce**: true
+
+```typescript
+// ✅ Good - Sanitized logging
+logger.info('API request made', {
+  endpoint: '/api/orders',
+  userId: req.user.id,
+  // Never log API keys or secrets
+});
+
+// ❌ Avoid - Exposing sensitive data
+logger.info('API request made', {
+  endpoint: '/api/orders',
+  apiKey: req.headers['x-api-key'], // Never do this!
+});
+```
+
+### Use Rate Limiting
+**Description**: Implement rate limiting to prevent abuse and protect against DDoS attacks.
+**Rationale**: Protects the API from being overwhelmed and ensures fair usage.
+**Enforce**: recommended
+
+```typescript
+// ✅ Good - Rate limiting
+import rateLimit from 'express-rate-limit';
+
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // limit each IP to 100 requests per windowMs
+  message: {
+    success: false,
+    error: 'Too many requests, please try again later'
+  }
+});
+
+app.use('/api/', apiLimiter);
+```
+
+### Validate and Sanitize All Inputs
+**Description**: Always validate and sanitize user inputs to prevent injection attacks.
+**Rationale**: Prevents security vulnerabilities like SQL injection and XSS attacks.
+**Enforce**: true
+
+```typescript
+// ✅ Good - Input sanitization
+import { escape } from 'validator';
+
+const sanitizeInput = (input: string): string => {
+  return escape(input.trim());
+};
+
+// Use parameterized queries for database operations
+const getUserOrders = async (userId: string): Promise<Order[]> => {
+  const query = 'SELECT * FROM orders WHERE user_id = $1';
+  const result = await db.query(query, [userId]);
+  return result.rows;
+};
+```
+
+## Performance Guidelines
+
+### Use Connection Pooling
+**Description**: Use connection pooling for database and external API connections.
+**Rationale**: Improves performance by reusing connections and prevents connection exhaustion.
+**Enforce**: recommended
+
+```typescript
+// ✅ Good - Connection pooling
+import { Pool } from 'pg';
+
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  max: 20, // maximum number of connections
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 2000,
+});
+```
+
+### Implement Caching Strategies
+**Description**: Use caching for frequently accessed data to improve performance.
+**Rationale**: Reduces load on external APIs and databases, improving response times.
+**Enforce**: recommended
+
+```typescript
+// ✅ Good - Caching implementation
+class CacheService {
+  private cache = new Map<string, { data: any; expiry: number }>();
+
+  set(key: string, data: any, ttlMs: number): void {
+    this.cache.set(key, {
+      data,
+      expiry: Date.now() + ttlMs
+    });
+  }
+
+  get(key: string): any | null {
+    const item = this.cache.get(key);
+    if (!item || Date.now() > item.expiry) {
+      this.cache.delete(key);
+      return null;
+    }
+    return item.data;
+  }
+}
+```
+
+### Monitor Memory Usage
+**Description**: Monitor memory usage and implement cleanup mechanisms.
+**Rationale**: Prevents memory leaks and ensures stable application performance.
+**Enforce**: recommended
+
+```typescript
+// ✅ Good - Memory monitoring
+setInterval(() => {
+  const usage = process.memoryUsage();
+  logger.info('Memory usage', {
+    rss: `${(usage.rss / 1024 / 1024).toFixed(2)} MB`,
+    heapUsed: `${(usage.heapUsed / 1024 / 1024).toFixed(2)} MB`,
+    heapTotal: `${(usage.heapTotal / 1024 / 1024).toFixed(2)} MB`
+  });
+}, 60000); // Log every minute
+```
+
+## Testing Guidelines
+
+### Write Comprehensive Unit Tests
+**Description**: Write unit tests for all business logic with good coverage.
+**Rationale**: Ensures code reliability and makes refactoring safer.
+**Enforce**: recommended
+
+```typescript
+// ✅ Good - Comprehensive unit tests
+describe('OrderService', () => {
+  let orderService: OrderService;
+  let mockBinanceClient: jest.Mocked<BinanceClient>;
+
+  beforeEach(() => {
+    mockBinanceClient = {
+      submitOrder: jest.fn(),
+      getAccount: jest.fn(),
+    } as any;
+    orderService = new OrderService(mockBinanceClient);
+  });
+
+  describe('placeOrder', () => {
+    it('should place order successfully', async () => {
+      // Arrange
+      const orderData = { symbol: 'BTCUSDT', side: 'BUY', quantity: 0.001 };
+      const mockOrder = { orderId: 123456, ...orderData };
+      mockBinanceClient.submitOrder.mockResolvedValue(mockOrder);
+
+      // Act
+      const result = await orderService.placeOrder(orderData);
+
+      // Assert
+      expect(result.success).toBe(true);
+      expect(result.data).toEqual(mockOrder);
+      expect(mockBinanceClient.submitOrder).toHaveBeenCalledWith(orderData);
+    });
+  });
+});
+```
+
+### Use Integration Tests for API Endpoints
+**Description**: Write integration tests for API endpoints to test the full request/response cycle.
+**Rationale**: Ensures the API works correctly end-to-end.
+**Enforce**: recommended
+
+```typescript
+// ✅ Good - Integration tests
+describe('Orders API', () => {
+  it('should place order via POST /api/orders', async () => {
+    const orderData = {
+      symbol: 'BTCUSDT',
+      side: 'BUY',
+      type: 'MARKET',
+      quantity: 0.001
+    };
+
+    const response = await request(app)
+      .post('/api/orders')
+      .send(orderData)
+      .expect(201);
+
+    expect(response.body.success).toBe(true);
+    expect(response.body.data.orderId).toBeDefined();
+  });
+});
+```
+
+## Best Practices Summary
+
+1. **Use explicit types for all public APIs**
+2. **Prefer async/await over Promise chains**
+3. **Use environment variables for configuration**
+4. **Implement proper error handling middleware**
+5. **Use structured logging with context**
+6. **Validate all inputs with schema validation**
+7. **Return consistent API response formats**
+8. **Use appropriate HTTP status codes**
+9. **Implement rate limiting and security measures**
+10. **Use connection pooling and caching for performance**
+11. **Monitor memory usage and implement cleanup**
+12. **Write comprehensive unit and integration tests**
+13. **Never expose sensitive information in logs**
+14. **Use immutable data patterns where possible**
+15. **Implement type guards for runtime safety**

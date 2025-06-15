@@ -1,0 +1,478 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# Code Style Guidelines
+
+Naming conventions and formatting standards for TypeScript and Node.js development, particularly for trading APIs and backend services.
+
+## Naming Conventions
+
+### Variables and Functions
+```typescript
+// ✅ Good - camelCase for variables and functions
+const accountBalance = 1000.50;
+const isConnected = true;
+const userPositions = [];
+
+function calculateProfit(entryPrice: number, currentPrice: number): number {
+  return currentPrice - entryPrice;
+}
+
+async function getAccountInfo(): Promise<AccountInfo> {
+  return await binanceClient.getAccount();
+}
+
+// ❌ Avoid - Inconsistent naming
+const account_balance = 1000.50;
+const IsConnected = true;
+const user_positions = [];
+
+function Calculate_Profit(entry_price: number, current_price: number): number {
+  return current_price - entry_price;
+}
+```
+
+### Classes and Interfaces
+```typescript
+// ✅ Good - PascalCase for classes and interfaces
+class BinanceWebSocketManager {
+  private isConnected: boolean = false;
+  
+  async connect(): Promise<void> {
+    // implementation
+  }
+}
+
+interface ApiResponse<T> {
+  success: boolean;
+  data?: T;
+  error?: string;
+}
+
+interface OrderData {
+  symbol: string;
+  side: 'BUY' | 'SELL';
+  quantity: number;
+}
+
+// ❌ Avoid - Inconsistent naming
+class binanceWebSocketManager {
+  // incorrect
+}
+
+interface apiResponse<T> {
+  // incorrect
+}
+```
+
+### Constants and Enums
+```typescript
+// ✅ Good - UPPER_SNAKE_CASE for constants
+const MAX_RECONNECT_ATTEMPTS = 10;
+const DEFAULT_TIMEOUT = 30000;
+const API_BASE_URL = 'https://api.binance.com';
+
+// PascalCase for enums, UPPER_SNAKE_CASE for values
+enum OrderStatus {
+  PENDING = 'PENDING',
+  NEW = 'NEW',
+  PARTIALLY_FILLED = 'PARTIALLY_FILLED',
+  FILLED = 'FILLED',
+  CANCELED = 'CANCELED',
+  REJECTED = 'REJECTED'
+}
+
+enum WebSocketMessageType {
+  CONNECTION = 'connection',
+  HEARTBEAT = 'heartbeat',
+  POSITIONS_UPDATE = 'positions_update',
+  BALANCE_UPDATE = 'balance_update'
+}
+
+// ❌ Avoid - Inconsistent naming
+const maxReconnectAttempts = 10;
+const default_timeout = 30000;
+
+enum orderStatus {
+  pending = 'pending',
+  new = 'new'
+}
+```
+
+### File and Directory Names
+```typescript
+// ✅ Good - kebab-case for files, camelCase for directories
+src/services/binance/usdm-websocket.ts
+src/controllers/order-management.controller.ts
+src/middleware/rate-limiting.middleware.ts
+src/utils/price-calculator.ts
+src/types/api-response.types.ts
+
+// Directory structure
+src/
+├── services/
+│   ├── binanceService/
+│   └── validationService/
+├── controllers/
+└── middleware/
+
+// ❌ Avoid - Inconsistent naming
+src/services/binance/USDMWebSocket.ts
+src/controllers/OrderManagement_Controller.ts
+src/middleware/rateLimiting.middleware.ts
+```
+
+## Code Formatting
+
+### Function Declarations
+```typescript
+// ✅ Good - Consistent function formatting
+async function placeOrder(
+  symbol: string,
+  side: 'BUY' | 'SELL',
+  quantity: number,
+  price?: number
+): Promise<ApiResponse<Order>> {
+  try {
+    const orderData: OrderData = {
+      symbol,
+      side,
+      quantity,
+      ...(price && { price })
+    };
+
+    const result = await binanceClient.placeOrder(orderData);
+    
+    return {
+      success: true,
+      data: result
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error'
+    };
+  }
+}
+
+// Arrow functions for simple operations
+const calculatePnL = (entryPrice: number, currentPrice: number, quantity: number): number => {
+  return (currentPrice - entryPrice) * quantity;
+};
+
+// ❌ Avoid - Inconsistent formatting
+async function placeOrder(symbol:string,side:'BUY'|'SELL',quantity:number,price?:number):Promise<ApiResponse<Order>>{
+  try{
+    const orderData:OrderData={symbol,side,quantity,...(price&&{price})};
+    const result=await binanceClient.placeOrder(orderData);
+    return{success:true,data:result};
+  }catch(error){
+    return{success:false,error:error instanceof Error?error.message:'Unknown error'};
+  }
+}
+```
+
+### Object and Array Formatting
+```typescript
+// ✅ Good - Consistent object formatting
+const config = {
+  port: 3000,
+  cors: {
+    origin: ['http://localhost:3000'],
+    credentials: true
+  },
+  rateLimit: {
+    windowMs: 15 * 60 * 1000,
+    max: 100
+  }
+};
+
+const symbols = [
+  'BTCUSDT',
+  'ETHUSDT',
+  'ADAUSDT',
+  'DOTUSDT'
+];
+
+// Multi-line arrays with trailing comma
+const orderTypes = [
+  'MARKET',
+  'LIMIT',
+  'STOP_MARKET',
+  'STOP_LIMIT',
+  'TAKE_PROFIT',
+  'TAKE_PROFIT_LIMIT',
+];
+
+// ❌ Avoid - Inconsistent formatting
+const config={port:3000,cors:{origin:['http://localhost:3000'],credentials:true},rateLimit:{windowMs:15*60*1000,max:100}};
+
+const symbols=['BTCUSDT','ETHUSDT','ADAUSDT','DOTUSDT'];
+```
+
+### Import and Export Statements
+```typescript
+// ✅ Good - Organized imports
+// External libraries first
+import express from 'express';
+import cors from 'cors';
+import { WebSocket } from 'ws';
+import { USDMClient, COINMClient } from 'binance';
+
+// Internal imports grouped by type
+import { BinanceService } from './services/binance';
+import { WebSocketManager } from './services/websocket';
+import { OrderController } from './controllers/order.controller';
+
+// Type imports
+import type { 
+  ApiResponse, 
+  OrderData, 
+  Position 
+} from './types';
+
+// Export statements
+export { BinanceService };
+export { WebSocketManager };
+export type { ApiResponse, OrderData, Position };
+
+// Default export at the end
+export default class TradingAPI {
+  // implementation
+}
+
+// ❌ Avoid - Disorganized imports
+import { BinanceService } from './services/binance';
+import express from 'express';
+import type { ApiResponse } from './types';
+import cors from 'cors';
+import { OrderController } from './controllers/order.controller';
+import { WebSocket } from 'ws';
+```
+
+## TypeScript Specific Styles
+
+### Type Annotations
+```typescript
+// ✅ Good - Explicit type annotations where helpful
+interface OrderRequest {
+  symbol: string;
+  side: 'BUY' | 'SELL';
+  type: 'MARKET' | 'LIMIT';
+  quantity: number;
+  price?: number;
+  timeInForce?: 'GTC' | 'IOC' | 'FOK';
+}
+
+class OrderService {
+  private readonly client: USDMClient;
+  private orders: Map<string, Order> = new Map();
+
+  constructor(client: USDMClient) {
+    this.client = client;
+  }
+
+  async placeOrder(request: OrderRequest): Promise<ApiResponse<Order>> {
+    // Explicit return type helps with IDE support
+    const validation = this.validateOrder(request);
+    if (!validation.isValid) {
+      return {
+        success: false,
+        error: validation.error
+      };
+    }
+
+    // Type assertion when necessary
+    const order = await this.client.submitNewOrder(request as any);
+    return {
+      success: true,
+      data: order
+    };
+  }
+
+  private validateOrder(request: OrderRequest): { isValid: boolean; error?: string } {
+    if (request.quantity <= 0) {
+      return { isValid: false, error: 'Quantity must be positive' };
+    }
+    
+    if (request.type === 'LIMIT' && !request.price) {
+      return { isValid: false, error: 'Price required for limit orders' };
+    }
+
+    return { isValid: true };
+  }
+}
+```
+
+### Generic Types
+```typescript
+// ✅ Good - Proper generic usage
+interface Repository<T, ID = string> {
+  findById(id: ID): Promise<T | null>;
+  save(entity: T): Promise<T>;
+  delete(id: ID): Promise<void>;
+}
+
+class InMemoryRepository<T extends { id: string }> implements Repository<T> {
+  private items = new Map<string, T>();
+
+  async findById(id: string): Promise<T | null> {
+    return this.items.get(id) || null;
+  }
+
+  async save(entity: T): Promise<T> {
+    this.items.set(entity.id, entity);
+    return entity;
+  }
+
+  async delete(id: string): Promise<void> {
+    this.items.delete(id);
+  }
+}
+
+// Usage with specific types
+const orderRepository = new InMemoryRepository<Order>();
+const positionRepository = new InMemoryRepository<Position>();
+```
+
+## Error Handling Style
+
+### Consistent Error Handling
+```typescript
+// ✅ Good - Consistent error handling patterns
+class BinanceService {
+  async getAccountInfo(): Promise<ApiResponse<AccountInfo>> {
+    try {
+      const account = await this.client.getAccountInformation();
+      
+      return {
+        success: true,
+        data: account,
+        timestamp: Date.now()
+      };
+    } catch (error) {
+      console.error('Failed to get account info:', error);
+      
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+        timestamp: Date.now()
+      };
+    }
+  }
+
+  async placeOrder(orderData: OrderData): Promise<ApiResponse<Order>> {
+    // Validate input first
+    const validation = this.validateOrderData(orderData);
+    if (!validation.isValid) {
+      return {
+        success: false,
+        error: validation.error,
+        timestamp: Date.now()
+      };
+    }
+
+    try {
+      const order = await this.client.submitNewOrder(orderData);
+      
+      return {
+        success: true,
+        data: order,
+        timestamp: Date.now()
+      };
+    } catch (error) {
+      // Log error for debugging
+      console.error('Failed to place order:', {
+        error: error instanceof Error ? error.message : error,
+        orderData
+      });
+
+      return {
+        success: false,
+        error: this.parseOrderError(error),
+        timestamp: Date.now()
+      };
+    }
+  }
+
+  private parseOrderError(error: unknown): string {
+    if (error instanceof Error) {
+      // Handle specific Binance API errors
+      if (error.message.includes('insufficient balance')) {
+        return 'Insufficient balance to place order';
+      }
+      if (error.message.includes('invalid symbol')) {
+        return 'Invalid trading symbol';
+      }
+      return error.message;
+    }
+    
+    return 'Failed to place order';
+  }
+}
+```
+
+## Comments and Documentation
+
+### JSDoc Comments
+```typescript
+// ✅ Good - Comprehensive JSDoc comments
+/**
+ * Places a new order on the exchange
+ * @param orderData - The order details
+ * @param orderData.symbol - Trading pair symbol (e.g., 'BTCUSDT')
+ * @param orderData.side - Order side ('BUY' or 'SELL')
+ * @param orderData.quantity - Order quantity
+ * @param orderData.price - Order price (required for LIMIT orders)
+ * @returns Promise resolving to API response with order details
+ * @throws {ValidationError} When order data is invalid
+ * @example
+ * ```typescript
+ * const result = await service.placeOrder({
+ *   symbol: 'BTCUSDT',
+ *   side: 'BUY',
+ *   type: 'LIMIT',
+ *   quantity: 0.001,
+ *   price: 45000
+ * });
+ * ```
+ */
+async placeOrder(orderData: OrderData): Promise<ApiResponse<Order>> {
+  // Implementation
+}
+
+/**
+ * WebSocket manager for real-time market data
+ * Handles connection lifecycle, reconnection, and message broadcasting
+ */
+export class WebSocketManager {
+  /** Maximum number of reconnection attempts */
+  private readonly maxReconnectAttempts = 10;
+  
+  /** Current reconnection attempt count */
+  private reconnectAttempts = 0;
+  
+  /**
+   * Initializes WebSocket connection
+   * @throws {ConnectionError} When initial connection fails
+   */
+  async initialize(): Promise<void> {
+    // Implementation
+  }
+}
+```
+
+## Best Practices Summary
+
+1. **Use camelCase for variables and functions**
+2. **Use PascalCase for classes and interfaces**
+3. **Use UPPER_SNAKE_CASE for constants**
+4. **Use kebab-case for file names**
+5. **Maintain consistent indentation (2 spaces)**
+6. **Add trailing commas in multi-line structures**
+7. **Group and organize imports logically**
+8. **Use explicit type annotations for public APIs**
+9. **Handle errors consistently with proper typing**
+10. **Document complex functions with JSDoc comments**

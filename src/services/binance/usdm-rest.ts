@@ -63,7 +63,7 @@ export interface OrderData {
   workingType?: 'MARK_PRICE' | 'CONTRACT_PRICE';
 }
 
-class BinanceRestAPI {
+class BinanceUsdMRestAPI {
   private client: USDMClient;
 
   constructor() {
@@ -469,4 +469,4 @@ class BinanceRestAPI {
   }
 }
 
-export default BinanceRestAPI;
+export default BinanceUsdMRestAPI;

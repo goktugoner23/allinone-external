@@ -2,7 +2,7 @@ import { WebsocketClient } from 'binance';
 import * as WebSocket from 'ws';
 import config from '../../config';
 
-class BinanceWebSocketManager {
+class BinanceUsdMWebSocketManager {
   private wsClient: WebsocketClient | null = null;
   private reconnectAttempts: number = 0;
   private maxReconnectAttempts: number = 5;
@@ -21,11 +21,11 @@ class BinanceWebSocketManager {
 
   async initialize(): Promise<void> {
     try {
-      console.log('Initializing Binance WebSocket connection...');
+      console.log('[USD-M] Initializing WebSocket connection...');
       await this.startUserDataStream();
       this.setupHeartbeat();
     } catch (error) {
-      console.error('Failed to initialize Binance WebSocket:', error);
+      console.error('[USD-M] Failed to initialize WebSocket:', error);
       this.scheduleReconnect();
     }
   }
@@ -41,7 +41,7 @@ class BinanceWebSocketManager {
       
       // Set up event handlers
       this.wsClient.on('open', (data) => {
-        console.log('Connected to Binance WebSocket:', data.wsKey);
+        console.log('[USD-M] WebSocket connected:', data.wsKey);
         this.isConnected = true;
         this.reconnectAttempts = 0;
         this.broadcastToClients({ type: 'connection', status: 'connected' });
@@ -51,7 +51,7 @@ class BinanceWebSocketManager {
         try {
           this.handleUserDataMessage(data);
         } catch (error) {
-          console.error('Error handling WebSocket message:', error);
+          console.error('[USD-M] Error handling WebSocket message:', error);
         }
       });
 
@@ -59,24 +59,24 @@ class BinanceWebSocketManager {
         try {
           this.handleUserDataMessage(data);
         } catch (error) {
-          console.error('Error handling formatted WebSocket message:', error);
+          console.error('[USD-M] Error handling formatted WebSocket message:', error);
         }
       });
 
       this.wsClient.on('error', (error) => {
-        console.error('WebSocket error:', error);
+        console.error('[USD-M] WebSocket error:', error);
         this.isConnected = false;
         this.broadcastToClients({ type: 'connection', status: 'error', error: String(error) });
       });
 
       this.wsClient.on('reconnecting', (data) => {
-        console.log('WebSocket reconnecting...', data?.wsKey);
+        console.log('[USD-M] WebSocket reconnecting...', data?.wsKey);
         this.isConnected = false;
         this.broadcastToClients({ type: 'connection', status: 'reconnecting' });
       });
 
       this.wsClient.on('reconnected', (data) => {
-        console.log('WebSocket reconnected:', data?.wsKey);
+        console.log('[USD-M] WebSocket reconnected:', data?.wsKey);
         this.isConnected = true;
         this.reconnectAttempts = 0;
         this.broadcastToClients({ type: 'connection', status: 'reconnected' });
@@ -86,13 +86,13 @@ class BinanceWebSocketManager {
       this.wsClient.subscribeUsdFuturesUserDataStream();
 
     } catch (error) {
-      console.error('Error starting user data stream:', error);
+      console.error('[USD-M] Error starting user data stream:', error);
       throw error;
     }
   }
 
   handleUserDataMessage(message: any): void {
-    console.log('Received user data message:', message);
+    console.log('[USD-M] Received user data message:', message);
 
     if (!message || typeof message !== 'object') {
       return;
@@ -110,13 +110,13 @@ class BinanceWebSocketManager {
         this.handleAccountConfigUpdate(message);
         break;
       default:
-        console.log('Unknown message type:', message.eventType || message.e);
+        console.log('[USD-M] Unknown message type:', message.eventType || message.e);
         break;
     }
   }
 
   handleAccountUpdate(message: any): void {
-    console.log('Account update received:', message);
+    console.log('[USD-M] Account update received:', message);
 
     // Extract position updates
     if (message.a?.P || message.accountUpdate?.positions) {
@@ -155,7 +155,7 @@ class BinanceWebSocketManager {
   }
 
   handleOrderUpdate(message: any): void {
-    console.log('Order update received:', message);
+    console.log('[USD-M] Order update received:', message);
 
     const orderData = message.o || message.order || {};
     
@@ -197,7 +197,7 @@ class BinanceWebSocketManager {
   }
 
   handleAccountConfigUpdate(message: any): void {
-    console.log('Account config update received:', message);
+    console.log('[USD-M] Account config update received:', message);
 
     const configData = message.ac || message.accountConfig || {};
     
@@ -214,60 +214,48 @@ class BinanceWebSocketManager {
   }
 
   setupHeartbeat(): void {
-    // The modern binance library handles heartbeat automatically
-    console.log('WebSocket heartbeat is handled automatically by the library');
+    console.log('[USD-M] WebSocket heartbeat is handled automatically by the library');
   }
 
   scheduleReconnect(): void {
-    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      console.error('Max reconnection attempts reached');
-      this.broadcastToClients({ 
-        type: 'connection', 
-        status: 'failed', 
-        error: 'Max reconnection attempts reached' 
-      });
-      return;
+    if (this.reconnectAttempts < this.maxReconnectAttempts) {
+      this.reconnectAttempts++;
+      const delay = this.reconnectDelay * this.reconnectAttempts;
+      
+      console.log(`[USD-M] Scheduling reconnection attempt ${this.reconnectAttempts} in ${delay}ms`);
+      
+      setTimeout(() => {
+        this.initialize();
+      }, delay);
+    } else {
+      console.error('[USD-M] Max reconnection attempts reached');
     }
-
-    this.reconnectAttempts++;
-    console.log(`Scheduling reconnection attempt ${this.reconnectAttempts} in ${this.reconnectDelay}ms`);
-    
-    setTimeout(() => {
-      this.initialize();
-    }, this.reconnectDelay);
   }
 
   addClient(ws: WebSocket): void {
     this.clients.add(ws);
-    console.log(`WebSocket client added. Total clients: ${this.clients.size}`);
-    
-    // Send current connection status to new client
-    ws.send(JSON.stringify({
-      type: 'connection',
-      status: this.isConnected ? 'connected' : 'disconnected'
-    }));
+    console.log(`[USD-M] WebSocket client added. Total clients: ${this.clients.size}`);
 
     ws.on('close', () => {
       this.clients.delete(ws);
-      console.log(`WebSocket client removed. Total clients: ${this.clients.size}`);
+      console.log(`[USD-M] WebSocket client removed. Total clients: ${this.clients.size}`);
     });
 
     ws.on('error', (error) => {
-      console.error('Client WebSocket error:', error);
+      console.error('[USD-M] WebSocket client error:', error);
       this.clients.delete(ws);
     });
   }
 
   broadcastToClients(message: any): void {
-    const messageStr = JSON.stringify(message);
-    console.log(`Broadcasting to ${this.clients.size} clients:`, message);
+    console.log(`[USD-M] Broadcasting message to ${this.clients.size} clients:`, message.type);
     
-    this.clients.forEach(client => {
+    this.clients.forEach((client) => {
       if (client.readyState === WebSocket.OPEN) {
         try {
-          client.send(messageStr);
+          client.send(JSON.stringify(message));
         } catch (error) {
-          console.error('Error sending message to client:', error);
+          console.error('[USD-M] Error broadcasting to client:', error);
           this.clients.delete(client);
         }
       } else {
@@ -278,21 +266,21 @@ class BinanceWebSocketManager {
 
   async disconnect(): Promise<void> {
     try {
-      console.log('Disconnecting Binance WebSocket...');
+      console.log('[USD-M] Disconnecting WebSocket...');
       
       if (this.wsClient) {
-        // The modern library handles cleanup automatically
+        this.wsClient.closeAll();
         this.wsClient = null;
       }
       
       this.isConnected = false;
       this.clients.clear();
       
-      console.log('Binance WebSocket disconnected successfully');
+      console.log('[USD-M] WebSocket disconnected successfully');
     } catch (error) {
-      console.error('Error disconnecting WebSocket:', error);
+      console.error('[USD-M] Error disconnecting WebSocket:', error);
     }
   }
 }
 
-export default BinanceWebSocketManager;
+export default BinanceUsdMWebSocketManager;

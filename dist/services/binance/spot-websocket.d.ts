@@ -1,0 +1,43 @@
+import WebSocket from 'ws';
+declare class BinanceSpotWebSocketManager {
+    private ws;
+    private reconnectAttempts;
+    private maxReconnectAttempts;
+    private reconnectDelay;
+    private isConnected;
+    private subscriptions;
+    private heartbeatInterval;
+    private lastPongTime;
+    private readonly baseUrl;
+    clients: Set<WebSocket>;
+    constructor();
+    initialize(): Promise<void>;
+    private connect;
+    private handleMessage;
+    private processStreamData;
+    private processEventData;
+    private handleTickerData;
+    private handleDepthData;
+    private handleTradeData;
+    private formatStreamData;
+    private formatEventData;
+    private formatTickerData;
+    private formatDepthData;
+    private formatTradeData;
+    subscribeToTicker(symbol: string): Promise<void>;
+    subscribeToDepth(symbol: string, levels?: string): Promise<void>;
+    subscribeToTrades(symbol: string): Promise<void>;
+    private subscribe;
+    unsubscribe(stream: string): Promise<void>;
+    addClient(client: WebSocket): void;
+    private broadcastToClients;
+    private setupHeartbeat;
+    private handleDisconnection;
+    private reconnect;
+    disconnect(): Promise<void>;
+    get connected(): boolean;
+    get activeSubscriptions(): string[];
+    get clientCount(): number;
+}
+export default BinanceSpotWebSocketManager;
+//# sourceMappingURL=spot-websocket.d.ts.map

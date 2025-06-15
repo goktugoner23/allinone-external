@@ -1,12 +1,20 @@
 import BinanceService from './binance';
 
 class ServiceManager {
+  private static instance: ServiceManager;
   private binanceService: BinanceService;
   private isInitialized: boolean = false;
 
-  constructor() {
+  private constructor() {
     this.binanceService = new BinanceService();
     this.isInitialized = false;
+  }
+
+  static getInstance(): ServiceManager {
+    if (!ServiceManager.instance) {
+      ServiceManager.instance = new ServiceManager();
+    }
+    return ServiceManager.instance;
   }
 
   async initialize(): Promise<void> {

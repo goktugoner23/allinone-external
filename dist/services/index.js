@@ -10,6 +10,12 @@ class ServiceManager {
         this.binanceService = new binance_1.default();
         this.isInitialized = false;
     }
+    static getInstance() {
+        if (!ServiceManager.instance) {
+            ServiceManager.instance = new ServiceManager();
+        }
+        return ServiceManager.instance;
+    }
     async initialize() {
         try {
             console.log('Initializing all services...');
