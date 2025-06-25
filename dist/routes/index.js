@@ -9,6 +9,8 @@ const futures_1 = __importDefault(require("./futures"));
 const coinm_1 = __importDefault(require("./coinm"));
 const websocket_1 = __importDefault(require("./websocket"));
 const health_1 = __importDefault(require("./health"));
+const rag_1 = __importDefault(require("./rag"));
+const instagram_1 = __importDefault(require("./instagram"));
 const router = (0, express_1.Router)();
 // Health check routes
 router.use('/', health_1.default);
@@ -18,5 +20,9 @@ router.use('/api/binance/futures', futures_1.default);
 router.use('/api/binance/coinm', coinm_1.default);
 // WebSocket subscription routes
 router.use('/api/binance', websocket_1.default);
+// RAG system routes
+router.use('/api/rag', rag_1.default);
+// Instagram API routes
+router.use('/api/instagram', instagram_1.default);
 exports.default = router;
 //# sourceMappingURL=index.js.map

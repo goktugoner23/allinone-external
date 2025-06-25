@@ -1172,4 +1172,456 @@ curl -X DELETE http://localhost:3000/api/binance/spot/orders/BTCUSDT/12345
 curl -X POST http://localhost:3000/api/binance/spot/subscribe/ticker/BTCUSDT
 ```
 
+# Instagram API
+
+Base path: `/api/instagram`
+
+The Instagram API provides comprehensive integration with Instagram Business API, including data fetching, metrics tracking, Firestore storage, and RAG system synchronization - compatible with your existing Kotlin app.
+
+## Core Data Pipeline Endpoints
+
+### POST /api/instagram/sync
+
+**Main pipeline endpoint** - Fetch from Instagram API, store in Firestore, sync to RAG system.
+
+**Query Parameters:**
+- `limit` (optional): Number of posts to fetch (default: 25, max: 100)
+
+**Example:** `POST /api/instagram/sync?limit=50`
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Instagram data sync completed successfully",
+  "data": {
+    "posts": [...],
+    "totalFetched": 50,
+    "totalStored": 50,
+    "ragSynced": true,
+    "lastSync": "2024-01-01T00:00:00.000Z",
+    "cacheUsed": false,
+    "cacheReason": "Cache refresh needed"
+  },
+  "processingTime": 5234,
+  "timestamp": 1640995200000
+}
+```
+
+### GET /api/instagram/analytics
+
+Get comprehensive analytics combining fresh account data with stored posts.
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "account": {
+      "id": "17841400027244616",
+      "username": "your_username",
+      "accountType": "BUSINESS",
+      "mediaCount": 150,
+      "followersCount": 5000,
+      "followsCount": 500
+    },
+    "posts": [...],
+    "summary": {
+      "totalPosts": 150,
+      "totalEngagement": 25000,
+      "avgEngagementRate": 3.2,
+      "lastUpdate": "2024-01-01T00:00:00.000Z"
+    }
+  },
+  "timestamp": 1640995200000
+}
+```
+
+## Metrics Management Endpoints (Kotlin App Compatible)
+
+### POST /api/instagram/metrics/update
+
+**Update metrics for existing posts** - like your Kotlin app does. Fetches fresh metrics from Instagram API and updates Firestore.
+
+**Query Parameters:**
+- `postIds` (optional): Comma-separated list of post IDs to update. If not provided, updates posts needing refresh (older than 24 hours)
+
+**Example:** `POST /api/instagram/metrics/update?postIds=17898870784439040,17912345678901234`
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Instagram posts metrics update completed",
+  "data": {
+    "updated": 45,
+    "errors": 2,
+    "results": [
+      {
+        "postId": "17898870784439040",
+        "success": true
+      },
+      {
+        "postId": "17912345678901234",
+        "success": false,
+        "error": "Post not found"
+      }
+    ]
+  },
+  "timestamp": 1640995200000
+}
+```
+
+### POST /api/instagram/metrics/sync
+
+**Sync fresh metrics** from Instagram API to Firestore - maintains data freshness like your Kotlin app.
+
+**Query Parameters:**
+- `limit` (optional): Number of recent posts to sync (default: 50, max: 100)
+
+**Example:** `POST /api/instagram/metrics/sync?limit=100`
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Instagram metrics sync to Firestore completed",
+  "data": {
+    "synced": 98,
+    "errors": 2,
+    "lastSync": "2024-01-01T00:00:00.000Z"
+  },
+  "timestamp": 1640995200000
+}
+```
+
+## Data Access Endpoints
+
+### GET /api/instagram/account
+
+Get Instagram account information from Instagram API.
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "id": "17841400027244616",
+    "username": "your_username",
+    "name": "Your Display Name",
+    "biography": "Your bio text",
+    "website": "https://your-website.com",
+    "profilePictureUrl": "https://...",
+    "followersCount": 5000,
+    "followsCount": 500,
+    "mediaCount": 150,
+    "accountType": "BUSINESS"
+  },
+  "timestamp": 1640995200000
+}
+```
+
+### GET /api/instagram/posts
+
+Get Instagram posts from Instagram API with pagination.
+
+**Query Parameters:**
+- `limit` (optional): Number of posts to fetch (default: 25, max: 100)
+- `after` (optional): Pagination cursor
+
+**Example:** `GET /api/instagram/posts?limit=50&after=cursor_string`
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": "17898870784439040",
+      "shortcode": "ABC123def",
+      "caption": "Your post caption #fitness #motivation",
+      "mediaType": "IMAGE",
+      "mediaUrl": "https://...",
+      "permalink": "https://www.instagram.com/p/ABC123def/",
+      "timestamp": "2024-01-01T00:00:00.000Z",
+      "username": "your_username",
+      "metrics": {
+        "likesCount": 150,
+        "commentsCount": 25,
+        "sharesCount": 5,
+        "savesCount": 30,
+        "reachCount": 2500,
+        "impressionsCount": 3200,
+        "engagementRate": 8.4,
+        "totalInteractions": 210
+      },
+      "hashtags": ["#fitness", "#motivation"],
+      "mentions": ["@someone"]
+    }
+  ],
+  "paging": {
+    "cursors": {
+      "before": "before_cursor",
+      "after": "after_cursor"
+    },
+    "next": "next_page_url"
+  },
+  "timestamp": 1640995200000
+}
+```
+
+## Firestore Integration Endpoints
+
+### GET /api/instagram/firestore/posts
+
+Get Instagram posts from Firestore (your existing Kotlin app data).
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": "17898870784439040",
+      "caption": "Your post caption #fitness #motivation",
+      "mediaType": "FEED",
+      "permalink": "https://www.instagram.com/p/ABC123def/",
+      "timestamp": "2024-01-01T00:00:00.000Z",
+      "formattedDate": "Jan 1, 2024",
+      "metrics": {
+        "likes": 150,
+        "comments": 25,
+        "shares": 5,
+        "saved": 30,
+        "reach": 2500,
+        "views": 3200,
+        "total_interactions": 210,
+        "engagementRate": 8.4
+      },
+      "shortcode": "ABC123def",
+      "hashtags": ["#fitness", "#motivation"],
+      "mentions": ["@someone"]
+    }
+  ],
+  "count": 150,
+  "source": "Firebase Firestore",
+  "timestamp": 1640995200000
+}
+```
+
+### GET /api/instagram/firestore/raw
+
+Get raw Instagram data from Firestore (exact format as your Kotlin app export).
+
+**Response:**
+```json
+{
+  "success": true,
+  "posts": [
+    {
+      "id": "17898870784439040",
+      "caption": "Your post caption #fitness #motivation",
+      "mediaType": "FEED",
+      "permalink": "https://www.instagram.com/p/ABC123def/",
+      "timestamp": "2024-01-01T00:00:00.000Z",
+      "formattedDate": "Jan 1, 2024",
+      "metrics": {
+        "likes": 150,
+        "comments": 25,
+        "shares": 5,
+        "saved": 30,
+        "reach": 2500,
+        "views": 3200,
+        "total_interactions": 210
+      }
+    }
+  ],
+  "metadata": {
+    "timestamp": 1640995200000,
+    "count": 150,
+    "source": "Firebase Firestore"
+  }
+}
+```
+
+### POST /api/instagram/firestore/sync-to-rag
+
+Sync Firestore Instagram data to RAG system for AI queries.
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "lastSyncAt": "2024-01-01T00:00:00.000Z",
+    "postsCount": 150,
+    "storiesCount": 0,
+    "insightsCount": 0,
+    "status": "idle",
+    "nextSyncAt": "2024-01-01T06:00:00.000Z"
+  },
+  "message": "Firestore Instagram data sync completed",
+  "timestamp": 1640995200000
+}
+```
+
+## Cache Management Endpoints
+
+### GET /api/instagram/cache/stats
+
+Get Instagram cache statistics.
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "exists": true,
+    "lastUpdate": "2024-01-01T00:00:00.000Z",
+    "lastApiCheck": "2024-01-01T00:00:00.000Z",
+    "totalPosts": 150,
+    "shouldRefresh": false,
+    "cacheAge": 1800,
+    "nextRefreshIn": 21600
+  },
+  "timestamp": 1640995200000
+}
+```
+
+### DELETE /api/instagram/cache
+
+Clear Instagram cache to force fresh data fetch.
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Cache cleared successfully",
+  "timestamp": 1640995200000
+}
+```
+
+## Health Check Endpoints
+
+### GET /api/instagram/status
+
+Get comprehensive health status of all Instagram services.
+
+**Response:**
+```json
+{
+  "success": true,
+  "health": {
+    "instagram": true,
+    "firestore": true,
+    "rag": true,
+    "cache": true,
+    "overall": true
+  },
+  "timestamp": 1640995200000
+}
+```
+
+### GET /api/instagram/health
+
+Health check for Instagram API connection.
+
+**Response:**
+```json
+{
+  "success": true,
+  "health": {
+    "instagram": true,
+    "configured": true
+  },
+  "timestamp": 1640995200000
+}
+```
+
+### GET /api/instagram/firestore/health
+
+Health check for Firebase Firestore connection.
+
+**Response:**
+```json
+{
+  "success": true,
+  "health": {
+    "firestore": true,
+    "configured": true
+  },
+  "timestamp": 1640995200000
+}
+```
+
+## Error Responses
+
+### Common Error Cases
+
+#### 400 Bad Request - Missing Configuration
+```json
+{
+  "success": false,
+  "error": "Instagram access token not configured",
+  "timestamp": 1640995200000
+}
+```
+
+#### 400 Bad Request - Validation Error
+```json
+{
+  "success": false,
+  "error": "Validation failed",
+  "details": [
+    {
+      "field": "limit",
+      "message": "Must be between 1 and 100"
+    }
+  ],
+  "timestamp": 1640995200000
+}
+```
+
+#### 500 Internal Server Error
+```json
+{
+  "success": false,
+  "error": "Failed to fetch Instagram posts",
+  "details": "Rate limit exceeded",
+  "timestamp": 1640995200000
+}
+```
+
+## Usage Examples
+
+### Complete Data Pipeline (Kotlin App Compatible)
+```bash
+# 1. Sync fresh data from Instagram API to Firestore
+curl -X POST "http://localhost:3000/api/instagram/sync?limit=50"
+
+# 2. Update metrics for existing posts
+curl -X POST "http://localhost:3000/api/instagram/metrics/update"
+
+# 3. Sync to RAG system for AI queries
+curl -X POST "http://localhost:3000/api/instagram/firestore/sync-to-rag"
+
+# 4. Get analytics
+curl "http://localhost:3000/api/instagram/analytics"
+```
+
+### Periodic Metrics Sync (Like Kotlin App)
+```bash
+# Sync fresh metrics from Instagram API to Firestore
+curl -X POST "http://localhost:3000/api/instagram/metrics/sync?limit=100"
+```
+
+### Access Existing Firestore Data
+```bash
+# Get posts from Firestore (your Kotlin app data)
+curl "http://localhost:3000/api/instagram/firestore/posts"
+
+# Get raw data (exact Kotlin app format)
+curl "http://localhost:3000/api/instagram/firestore/raw"
+```
+
 This documentation provides comprehensive coverage of all API endpoints, request/response formats, and usage examples for the AllInOne External Services application. 

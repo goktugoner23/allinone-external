@@ -1,3 +1,4 @@
+import { RAGConfig } from '../types/rag';
 export interface Config {
     port: number;
     nodeEnv: string;
@@ -29,6 +30,29 @@ export interface Config {
     logging: {
         level: string;
         enableFileLogging: boolean;
+    };
+    rag: RAGConfig;
+    openai: {
+        apiKey: string | undefined;
+        organization?: string;
+    };
+    pinecone: {
+        apiKey: string | undefined;
+        indexName: string;
+    };
+    firebase: {
+        projectId?: string;
+        serviceAccount?: string;
+    };
+    instagram: {
+        accessToken?: string;
+        userId?: string;
+        appId?: string;
+        appSecret?: string;
+        webhookVerifyToken?: string;
+        apiVersion: string;
+        pageAccessToken?: string;
+        facebookPageId?: string;
     };
 }
 declare const config: Config;

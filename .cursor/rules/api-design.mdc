@@ -1,6 +1,6 @@
 ---
-description:
-globs:
+description: api-design
+globs: 
 alwaysApply: false
 ---
 # API Design Guidelines

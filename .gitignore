@@ -3,3 +3,24 @@ node_modules/
 .DS_Store
 npm-debug.log
 ecosystem.config.js
+
+# Firebase & Google Services (sensitive)
+firebase-service-account.json
+google-services.json
+
+# Logs
+logs/
+*.log
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage directory used by tools like istanbul
+coverage/
+
+# Build outputs
+dist/
+build/

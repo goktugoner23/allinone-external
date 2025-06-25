@@ -7,4 +7,5 @@ export declare const validateSymbol: (req: Request, res: Response, next: NextFun
 export declare const validateAsset: (req: Request, res: Response, next: NextFunction) => void;
 export declare const validateOrderId: (req: Request, res: Response, next: NextFunction) => void;
 export declare const validatePagination: (req: Request, res: Response, next: NextFunction) => void;
+export declare const validateRequest: (req: Request, res: Response, next: NextFunction) => void;
 //# sourceMappingURL=validation.d.ts.map

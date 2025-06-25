@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
+import { validationResult } from 'express-validator';
 import { ValidationError } from '../utils/errors';
 import { 
   spotOrderSchema, 
@@ -96,5 +97,15 @@ export const validatePagination = (req: Request, res: Response, next: NextFuncti
     req.query.offset = offsetNum.toString();
   }
 
+  next();
+};
+
+// Express-validator validation middleware
+export const validateRequest = (req: Request, res: Response, next: NextFunction): void => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    const errorMessages = errors.array().map(error => error.msg).join(', ');
+    throw new ValidationError(errorMessages);
+  }
   next();
 }; 

@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.validatePagination = exports.validateOrderId = exports.validateAsset = exports.validateSymbol = exports.validateTPSL = exports.validateFuturesOrder = exports.validateSpotOrder = exports.validate = void 0;
+exports.validateRequest = exports.validatePagination = exports.validateOrderId = exports.validateAsset = exports.validateSymbol = exports.validateTPSL = exports.validateFuturesOrder = exports.validateSpotOrder = exports.validate = void 0;
+const express_validator_1 = require("express-validator");
 const errors_1 = require("../utils/errors");
 const validation_1 = require("../utils/validation");
 // Generic validation middleware factory
@@ -80,4 +81,14 @@ const validatePagination = (req, res, next) => {
     next();
 };
 exports.validatePagination = validatePagination;
+// Express-validator validation middleware
+const validateRequest = (req, res, next) => {
+    const errors = (0, express_validator_1.validationResult)(req);
+    if (!errors.isEmpty()) {
+        const errorMessages = errors.array().map(error => error.msg).join(', ');
+        throw new errors_1.ValidationError(errorMessages);
+    }
+    next();
+};
+exports.validateRequest = validateRequest;
 //# sourceMappingURL=validation.js.map
