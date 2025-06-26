@@ -24,6 +24,10 @@ const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
+// Configure trust proxy for rate limiting
+// Only trust the first proxy (typically a reverse proxy like nginx)
+app.set('trust proxy', 1);
+
 // Initialize services
 const serviceManager = ServiceManager.getInstance();
 const binanceService = serviceManager.getBinanceService();
