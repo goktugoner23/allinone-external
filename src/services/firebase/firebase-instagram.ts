@@ -15,7 +15,28 @@ export class FirebaseInstagramService {
       
       if (config.firebase.serviceAccount) {
         try {
-          serviceAccount = JSON.parse(config.firebase.serviceAccount);
+          // Check if it's a file path or JSON string
+          if (config.firebase.serviceAccount.includes('{')) {
+            // It's a JSON string
+            serviceAccount = JSON.parse(config.firebase.serviceAccount);
+          } else {
+            // It's a file path
+            const fs = require('fs');
+            const path = require('path');
+            const filePath = path.resolve(config.firebase.serviceAccount);
+            
+            if (fs.existsSync(filePath)) {
+              const fileContent = fs.readFileSync(filePath, 'utf8');
+              serviceAccount = JSON.parse(fileContent);
+              
+              // Fix private key newlines
+              if (serviceAccount.private_key) {
+                serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, '\n');
+              }
+            } else {
+              throw new Error(`Firebase service account file not found: ${filePath}`);
+            }
+          }
         } catch (error) {
           logger.error('Failed to parse Firebase service account JSON:', error);
           throw new Error('Invalid Firebase service account configuration');
@@ -27,11 +48,13 @@ export class FirebaseInstagramService {
           credential: cert(serviceAccount),
           projectId: config.firebase.projectId
         });
+        logger.info('Firebase initialized with service account');
       } else {
         // Use default credentials in production
         initializeApp({
           projectId: config.firebase.projectId
         });
+        logger.info('Firebase initialized with default credentials');
       }
     }
 
@@ -330,7 +353,8 @@ export class FirebaseInstagramService {
    * Extract hashtags from caption
    */
   private extractHashtags(caption: string): string[] {
-    const hashtagRegex = /#[\w]+/g;
+    // Updated regex to support Unicode characters including Turkish (ğ, ü, ö, ş, ç, ı)
+    const hashtagRegex = /#[\p{L}\p{N}_]+/gu;
     return caption.match(hashtagRegex) || [];
   }
 

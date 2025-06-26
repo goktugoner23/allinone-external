@@ -7,6 +7,9 @@ import InstagramPipeline from '../services/instagram/instagram-pipeline';
 import { InstagramConfig } from '../types/instagram';
 import config from '../config';
 import logger from '../utils/logger';
+import fs from 'fs/promises';
+import path from 'path';
+import { Document } from '../types/rag';
 
 const router = Router();
 
@@ -17,7 +20,8 @@ const instagramConfig: InstagramConfig = {
   appId: config.instagram?.appId || '',
   appSecret: config.instagram?.appSecret || '',
   webhookVerifyToken: config.instagram?.webhookVerifyToken || '',
-  apiVersion: config.instagram?.apiVersion || 'v18.0'
+  apiVersion: config.instagram?.apiVersion || 'v18.0',
+  pageAccessToken: config.instagram?.pageAccessToken || ''
 };
 
 const instagramService = new InstagramService(instagramConfig);
@@ -203,8 +207,6 @@ router.get('/posts', [
     timestamp: Date.now()
   });
 }));
-
-
 
 /**
  * GET /api/instagram/health
@@ -415,5 +417,319 @@ router.post('/firestore/sync-to-rag', asyncHandler(async (req: Request, res: Res
     });
   }
 }));
+
+/**
+ * POST /api/instagram/sync-complete
+ * Complete sync: Instagram API → Firestore + JSON → RAG
+ * This is what the Kotlin app should call
+ */
+router.post('/sync-complete', [
+  query('limit').optional().isInt({ min: 1, max: 100 }).toInt()
+], asyncHandler(async (req: Request, res: Response) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({
+      success: false,
+      error: 'Validation failed',
+      details: errors.array()
+    });
+  }
+
+  const { limit = 50 } = req.query;
+  const startTime = Date.now();
+
+  logger.info('Starting complete Instagram sync pipeline', { limit });
+
+  if (!instagramConfig.accessToken) {
+    return res.status(400).json({
+      success: false,
+      error: 'Instagram access token not configured'
+    });
+  }
+
+  try {
+    // Step 1: Fetch fresh data from Instagram API
+    logger.info('Step 1: Fetching fresh Instagram data...');
+    const posts = await instagramService.getPosts(limit as number);
+    const account = await instagramService.getAccountInfo();
+
+    // Step 2: Store in Firestore
+    logger.info('Step 2: Storing data in Firestore...');
+    const firestoreResults = await Promise.all(
+      posts.data.map(post => firebaseInstagramService.savePost(post))
+    );
+
+    // Step 3: Store in JSON file
+    logger.info('Step 3: Creating comprehensive JSON file...');
+    const jsonData = {
+      account,
+      posts: posts.data,
+      metadata: {
+        totalPosts: posts.data.length,
+        lastSync: new Date().toISOString(),
+        syncedBy: 'nodejs-api',
+        source: 'instagram_business_api'
+      },
+      paging: posts.paging
+    };
+
+    const jsonPath = path.join(process.cwd(), 'data', 'instagram-complete-data.json');
+    
+    // Ensure data directory exists
+    await fs.mkdir(path.dirname(jsonPath), { recursive: true });
+    
+    // Write JSON file
+    await fs.writeFile(jsonPath, JSON.stringify(jsonData, null, 2), 'utf8');
+    logger.info('JSON file created successfully', { path: jsonPath, postsCount: posts.data.length });
+
+    // Step 4: Feed JSON to RAG system
+    logger.info('Step 4: Loading JSON data into RAG system...');
+    const ragResults = await loadJsonToRAG(jsonPath);
+
+    const processingTime = Date.now() - startTime;
+
+    res.json({
+      success: true,
+      message: 'Complete Instagram sync pipeline completed successfully',
+      data: {
+        account: {
+          username: account.username,
+          followersCount: account.followersCount,
+          mediaCount: account.mediaCount
+        },
+        sync: {
+          postsFromAPI: posts.data.length,
+          postsToFirestore: firestoreResults.length,
+          postsToRAG: ragResults.documentsAdded,
+          jsonFilePath: jsonPath
+        },
+        rag: ragResults
+      },
+      processingTime,
+      timestamp: Date.now()
+    });
+
+  } catch (error) {
+    logger.error('Complete Instagram sync failed:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Complete Instagram sync failed',
+      details: error instanceof Error ? error.message : 'Unknown error',
+      processingTime: Date.now() - startTime,
+      timestamp: Date.now()
+    });
+  }
+}));
+
+/**
+ * POST /api/instagram/load-json-to-rag
+ * Load existing JSON file to RAG system
+ */
+router.post('/load-json-to-rag', asyncHandler(async (req: Request, res: Response) => {
+  logger.info('Loading existing JSON data to RAG system');
+
+  try {
+    const jsonPath = path.join(process.cwd(), 'data', 'instagram-complete-data.json');
+    const ragResults = await loadJsonToRAG(jsonPath);
+
+    res.json({
+      success: true,
+      message: 'JSON data loaded to RAG system successfully',
+      data: ragResults,
+      timestamp: Date.now()
+    });
+
+  } catch (error) {
+    logger.error('Failed to load JSON to RAG:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to load JSON to RAG system',
+      details: error instanceof Error ? error.message : 'Unknown error',
+      timestamp: Date.now()
+    });
+  }
+}));
+
+/**
+ * GET /api/instagram/json-status
+ * Check JSON file status
+ */
+router.get('/json-status', asyncHandler(async (req: Request, res: Response) => {
+  try {
+    const jsonPath = path.join(process.cwd(), 'data', 'instagram-complete-data.json');
+    
+    try {
+      const stats = await fs.stat(jsonPath);
+      const content = await fs.readFile(jsonPath, 'utf8');
+      const data = JSON.parse(content);
+
+      res.json({
+        success: true,
+        data: {
+          exists: true,
+          filePath: jsonPath,
+          fileSize: stats.size,
+          lastModified: stats.mtime.toISOString(),
+          postsCount: data.posts?.length || 0,
+          accountUsername: data.account?.username,
+          lastSync: data.metadata?.lastSync,
+          source: data.metadata?.source
+        },
+        timestamp: Date.now()
+      });
+
+    } catch (fileError) {
+      res.json({
+        success: true,
+        data: {
+          exists: false,
+          filePath: jsonPath,
+          message: 'JSON file not found. Run /sync-complete first.'
+        },
+        timestamp: Date.now()
+      });
+    }
+
+  } catch (error) {
+    logger.error('Failed to check JSON status:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to check JSON file status',
+      timestamp: Date.now()
+    });
+  }
+}));
+
+/**
+ * Helper function to load JSON data to RAG system
+ */
+async function loadJsonToRAG(jsonPath: string): Promise<{
+  documentsAdded: number;
+  ragStatus: string;
+  processingTime: number;
+}> {
+  const startTime = Date.now();
+  
+  try {
+    // Read JSON file
+    const content = await fs.readFile(jsonPath, 'utf8');
+    const data = JSON.parse(content);
+    
+    if (!data.posts || !Array.isArray(data.posts)) {
+      throw new Error('Invalid JSON format: posts array not found');
+    }
+
+    // Convert posts to RAG documents
+    const documents: Document[] = data.posts.map((post: any, index: number) => ({
+      id: `instagram-json-post-${post.id}`,
+      content: createPostContentForRAG(post, data.account),
+      metadata: {
+        domain: 'instagram' as const,
+        source: 'json_file',
+        contentType: 'post' as const,
+        createdAt: post.timestamp,
+        updatedAt: new Date().toISOString(),
+        tags: ['instagram', 'post', ...(post.hashtags || [])],
+        type: 'instagram_post',
+        postId: post.id,
+        shortcode: post.shortcode,
+        mediaType: post.mediaType,
+        timestamp: post.timestamp,
+        likesCount: post.metrics?.likesCount || 0,
+        commentsCount: post.metrics?.commentsCount || 0,
+        engagementRate: post.metrics?.engagementRate || 0,
+        hashtags: post.hashtags || [],
+        mentions: post.mentions || [],
+        jsonIndex: index,
+        loadedAt: new Date().toISOString()
+      }
+    }));
+
+    // Import RAG service dynamically to avoid circular dependencies
+    const { addDocumentsToRAG } = await import('./rag');
+    
+    // Add documents to RAG system in batches
+    const batchSize = 10;
+    let totalAdded = 0;
+    
+    for (let i = 0; i < documents.length; i += batchSize) {
+      const batch = documents.slice(i, i + batchSize);
+      logger.info(`Adding batch ${Math.floor(i/batchSize) + 1}/${Math.ceil(documents.length/batchSize)} to RAG`);
+      
+      const addedCount = await addDocumentsToRAG(batch);
+      totalAdded += addedCount;
+    }
+
+    logger.info(`Successfully added ${totalAdded} documents to RAG system from JSON`);
+
+    return {
+      documentsAdded: totalAdded,
+      ragStatus: 'loaded',
+      processingTime: Date.now() - startTime
+    };
+
+  } catch (error) {
+    logger.error('Failed to load JSON to RAG:', error);
+    throw error;
+  }
+}
+
+/**
+ * Helper function to create RAG-optimized content from post
+ */
+function createPostContentForRAG(post: any, account: any): string {
+  const metrics = post.metrics || {};
+  const hashtags = (post.hashtags || []).join(' ');
+  const mentions = (post.mentions || []).join(' ');
+  
+  return `
+Instagram Post by @${account?.username || 'unknown'}
+
+Caption: ${post.caption || 'No caption'}
+
+Performance Metrics:
+- Likes: ${metrics.likesCount || 0}
+- Comments: ${metrics.commentsCount || 0}  
+- Engagement Rate: ${(metrics.engagementRate || 0).toFixed(2)}%
+- Views: ${metrics.viewsCount || 'N/A'}
+- Reach: ${metrics.reachCount || 'N/A'}
+
+Hashtags: ${hashtags}
+${mentions ? `Mentions: ${mentions}` : ''}
+Post Type: ${post.mediaType || 'UNKNOWN'}
+Created: ${post.timestamp}
+
+Analysis:
+- Engagement Level: ${getEngagementLevel(metrics.engagementRate || 0)}
+- Performance: ${getPerformanceDescription(metrics)}
+
+This post had ${getPerformanceLevel(metrics)} performance.
+`.trim();
+}
+
+/**
+ * Helper functions for content analysis
+ */
+function getEngagementLevel(rate: number): string {
+  if (rate > 5) return 'high';
+  if (rate > 2) return 'moderate';
+  return 'low';
+}
+
+function getPerformanceDescription(metrics: any): string {
+  const comments = metrics.commentsCount || 0;
+  if (comments > 20) return 'excellent engagement with many comments';
+  if (comments > 10) return 'good engagement with several comments';
+  if (comments > 5) return 'decent engagement with some comments';
+  return 'basic engagement';
+}
+
+function getPerformanceLevel(metrics: any): string {
+  const engagement = metrics.engagementRate || 0;
+  if (engagement > 5) return 'excellent';
+  if (engagement > 3) return 'strong';
+  if (engagement > 1) return 'decent';
+  return 'basic';
+}
 
 export default router; 

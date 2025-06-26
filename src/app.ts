@@ -18,6 +18,7 @@ import {
   validatePagination 
 } from './middleware/validation';
 import routes from './routes';
+import { initializeRAGService } from './routes/rag';
 
 const app = express();
 const server = http.createServer(app);
@@ -164,6 +165,16 @@ async function startServer(): Promise<void> {
     // Initialize services
     await serviceManager.initialize();
     
+    // Initialize RAG service
+    try {
+      console.log('Initializing RAG service...');
+      await initializeRAGService();
+      console.log('✅ RAG service initialized successfully');
+    } catch (error) {
+      console.warn('⚠️ RAG service initialization failed:', error instanceof Error ? error.message : error);
+      console.warn('RAG endpoints will not be available until service is initialized');
+    }
+    
     // Start HTTP server
     server.listen(config.port, () => {
       console.log(`🚀 Server running on port ${config.port}`);
@@ -177,6 +188,8 @@ async function startServer(): Promise<void> {
         console.log(`⚡ Futures API: http://localhost:${config.port}/api/binance/futures/`);
         console.log(`🪙 COIN-M API: http://localhost:${config.port}/api/binance/coinm/`);
         console.log(`🔌 WebSocket API: http://localhost:${config.port}/api/binance/websocket/`);
+        console.log(`🤖 RAG API: http://localhost:${config.port}/api/rag/`);
+        console.log(`📸 Instagram API: http://localhost:${config.port}/api/instagram/`);
       }
     });
     

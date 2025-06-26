@@ -13,6 +13,7 @@ const services_1 = __importDefault(require("./services"));
 const config_1 = __importDefault(require("./config"));
 const errorHandler_1 = require("./middleware/errorHandler");
 const routes_1 = __importDefault(require("./routes"));
+const rag_1 = require("./routes/rag");
 const app = (0, express_1.default)();
 const server = http_1.default.createServer(app);
 const wss = new ws_1.default.Server({ server });
@@ -133,6 +134,16 @@ async function startServer() {
         console.log('Starting server...');
         // Initialize services
         await serviceManager.initialize();
+        // Initialize RAG service
+        try {
+            console.log('Initializing RAG service...');
+            await (0, rag_1.initializeRAGService)();
+            console.log('✅ RAG service initialized successfully');
+        }
+        catch (error) {
+            console.warn('⚠️ RAG service initialization failed:', error instanceof Error ? error.message : error);
+            console.warn('RAG endpoints will not be available until service is initialized');
+        }
         // Start HTTP server
         server.listen(config_1.default.port, () => {
             console.log(`🚀 Server running on port ${config_1.default.port}`);
@@ -145,6 +156,8 @@ async function startServer() {
                 console.log(`⚡ Futures API: http://localhost:${config_1.default.port}/api/binance/futures/`);
                 console.log(`🪙 COIN-M API: http://localhost:${config_1.default.port}/api/binance/coinm/`);
                 console.log(`🔌 WebSocket API: http://localhost:${config_1.default.port}/api/binance/websocket/`);
+                console.log(`🤖 RAG API: http://localhost:${config_1.default.port}/api/rag/`);
+                console.log(`📸 Instagram API: http://localhost:${config_1.default.port}/api/instagram/`);
             }
         });
     }

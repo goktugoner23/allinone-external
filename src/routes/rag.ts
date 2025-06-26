@@ -35,6 +35,30 @@ async function initializeRAGService(): Promise<void> {
   }
 }
 
+// Helper function to add multiple documents to RAG system
+async function addDocumentsToRAG(documents: Document[]): Promise<number> {
+  if (!ragService) {
+    throw new Error('RAG service not initialized');
+  }
+
+  let addedCount = 0;
+  
+  for (const document of documents) {
+    try {
+      await ragService.addDocument(document);
+      addedCount++;
+    } catch (error) {
+      logger.error('Failed to add document to RAG:', {
+        documentId: document.id,
+        error: error instanceof Error ? error.message : error
+      });
+      // Continue with other documents even if one fails
+    }
+  }
+  
+  return addedCount;
+}
+
 // Middleware to ensure RAG service is initialized
 const ensureRAGServiceInitialized = (req: Request, res: Response, next: NextFunction): void => {
   if (!ragService) {
@@ -437,5 +461,5 @@ router.get('/health', (req: Request, res: Response) => {
   });
 });
 
-export { initializeRAGService };
-export default router; 
+export default router;
+export { initializeRAGService, addDocumentsToRAG }; 

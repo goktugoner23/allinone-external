@@ -3,20 +3,16 @@ import {
   InstagramPost,
   InstagramAccount,
   InstagramMetrics,
-  InstagramInsight,
-  InstagramStory,
   InstagramAnalytics,
   InstagramAPIResponse,
   InstagramConfig,
-  InstagramContentPerformance,
-  InstagramAudienceInsight
+  InstagramContentPerformance
 } from '../../types/instagram';
 import logger from '../../utils/logger';
 
 export class InstagramService {
   private client: AxiosInstance;
   private config: InstagramConfig;
-  private baseUrl = 'https://graph.instagram.com';
   private graphApiUrl = 'https://graph.facebook.com';
 
   constructor(instagramConfig: InstagramConfig) {
@@ -510,7 +506,8 @@ export class InstagramService {
    * Extract hashtags from caption
    */
   private extractHashtags(caption: string): string[] {
-    const hashtagRegex = /#[\w]+/g;
+    // Updated regex to support Unicode characters including Turkish (ğ, ü, ö, ş, ç, ı)
+    const hashtagRegex = /#[\p{L}\p{N}_]+/gu;
     return caption.match(hashtagRegex) || [];
   }
 
