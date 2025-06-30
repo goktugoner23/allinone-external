@@ -358,8 +358,8 @@ export class InstagramPipeline {
    */
   private async generateAnalyticsFromPosts(posts: InstagramPost[]): Promise<InstagramAnalytics> {
     try {
-      // Get account info
-      const accountInfo = await this.instagramService.getAccountInfo();
+      // Create account info from stored data (no Instagram API calls)
+      const accountInfo = this.generateAccountInfoFromPosts(posts);
       
       if (posts.length === 0) {
         return {
@@ -441,6 +441,28 @@ export class InstagramPipeline {
       logger.error('Error generating analytics from posts:', error);
       throw error;
     }
+  }
+
+  /**
+   * Generate account info from stored posts data (no Instagram API calls)
+   */
+  private generateAccountInfoFromPosts(posts: InstagramPost[]): any {
+    // Extract basic account info from posts data
+    const firstPost = posts[0];
+    const username = firstPost?.username || 'unknown';
+    
+    return {
+      id: this.instagramService['config']?.userId || 'unknown',
+      username: username,
+      name: username, // Fallback to username
+      biography: '',
+      website: '',
+      profilePictureUrl: '',
+      followersCount: 0, // Unknown from posts alone
+      followsCount: 0,   // Unknown from posts alone
+      mediaCount: posts.length,
+      accountType: 'BUSINESS'
+    };
   }
 
   /**
@@ -979,35 +1001,30 @@ export class InstagramPipeline {
   }
 
   /**
-   * Get comprehensive account analytics using stored data (no additional Instagram API calls)
+   * Get comprehensive account analytics using ONLY stored data (no Instagram API calls)
+   * Perfect for frontend that wants fast analytics without rate limit concerns
    */
   async getAccountAnalytics(): Promise<InstagramAnalytics> {
     try {
-      logger.info('Generating comprehensive analytics from stored data');
+      logger.info('Generating comprehensive analytics from stored data only');
       
-      // Get account info from Instagram API (lightweight call for fresh account stats)
-      const accountInfo = await this.instagramService.getAccountInfo();
-      
-             // Get posts from Firestore (stored data - no additional Instagram API calls)
-       // getAllPosts() already returns InstagramPost[] format
-       const instagramPosts = await this.firebaseService.getAllPosts();
+      // Get posts from Firestore (stored data - no Instagram API calls)
+      const instagramPosts = await this.firebaseService.getAllPosts();
 
       // Generate comprehensive analytics using our enhanced method
       const analytics = await this.generateAnalyticsFromPosts(instagramPosts);
       
-      // Override account info with fresh data
-      analytics.account = accountInfo;
-
-      logger.info('Successfully generated comprehensive analytics', {
+      logger.info('Successfully generated comprehensive analytics from stored data', {
         totalPosts: analytics.summary.totalPosts,
         totalEngagement: analytics.summary.totalEngagement,
         avgEngagementRate: analytics.summary.avgEngagementRate,
-        hasDetailedMetrics: !!analytics.summary.detailedMetrics
+        hasDetailedMetrics: !!analytics.summary.detailedMetrics,
+        sourceDataOnly: 'Firestore (no API calls)'
       });
 
       return analytics;
     } catch (error) {
-      logger.error('Failed to generate account analytics:', error);
+      logger.error('Failed to generate account analytics from stored data:', error);
       throw error;
     }
   }
