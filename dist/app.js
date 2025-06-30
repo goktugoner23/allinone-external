@@ -17,6 +17,9 @@ const rag_1 = require("./routes/rag");
 const app = (0, express_1.default)();
 const server = http_1.default.createServer(app);
 const wss = new ws_1.default.Server({ server });
+// Configure trust proxy for rate limiting
+// Only trust the first proxy (typically a reverse proxy like nginx)
+app.set('trust proxy', 1);
 // Initialize services
 const serviceManager = services_1.default.getInstance();
 const binanceService = serviceManager.getBinanceService();

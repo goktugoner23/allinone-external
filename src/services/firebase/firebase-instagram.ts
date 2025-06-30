@@ -8,6 +8,31 @@ export class FirebaseInstagramService {
   private db: FirebaseFirestore.Firestore;
   private readonly COLLECTION_NAME = 'instagram_business';
 
+  /**
+   * Clean undefined values from an object recursively
+   */
+  private cleanUndefinedValues(obj: any): any {
+    if (obj === null || obj === undefined) {
+      return null;
+    }
+    
+    if (Array.isArray(obj)) {
+      return obj.map(item => this.cleanUndefinedValues(item));
+    }
+    
+    if (typeof obj === 'object') {
+      const cleaned: any = {};
+      for (const [key, value] of Object.entries(obj)) {
+        if (value !== undefined) {
+          cleaned[key] = this.cleanUndefinedValues(value);
+        }
+      }
+      return cleaned;
+    }
+    
+    return obj;
+  }
+
   constructor() {
     // Initialize Firebase Admin if not already initialized
     if (getApps().length === 0) {
@@ -59,6 +84,11 @@ export class FirebaseInstagramService {
     }
 
     this.db = getFirestore();
+    
+    // Configure Firestore to ignore undefined properties
+    this.db.settings({
+      ignoreUndefinedProperties: true
+    });
   }
 
   /**
@@ -341,7 +371,7 @@ export class FirebaseInstagramService {
       mediaUrl: '',
       permalink: firestorePost.permalink,
       timestamp: firestorePost.timestamp,
-      username: 'from_firestore',
+      username: firestorePost.username || null,
       metrics,
       hashtags,
       mentions,
@@ -431,8 +461,9 @@ export class FirebaseInstagramService {
       logger.info('Saving Instagram post to Firestore', { postId: post.id });
 
       const firestorePost: FirestoreInstagramPost = this.convertInstagramPostToFirestore(post);
+      const cleanedPost = this.cleanUndefinedValues(firestorePost);
       
-      await this.db.collection(this.COLLECTION_NAME).doc(post.id).set(firestorePost, { merge: true });
+      await this.db.collection(this.COLLECTION_NAME).doc(post.id).set(cleanedPost, { merge: true });
 
       logger.info('Successfully saved Instagram post to Firestore', { 
         postId: post.id,
@@ -462,8 +493,9 @@ export class FirebaseInstagramService {
 
         batchPosts.forEach(post => {
           const firestorePost: FirestoreInstagramPost = this.convertInstagramPostToFirestore(post);
+          const cleanedPost = this.cleanUndefinedValues(firestorePost);
           const docRef = this.db.collection(this.COLLECTION_NAME).doc(post.id);
-          batch.set(docRef, firestorePost, { merge: true });
+          batch.set(docRef, cleanedPost, { merge: true });
         });
 
         batches.push(batch.commit());
@@ -489,11 +521,12 @@ export class FirebaseInstagramService {
       logger.info('Updating Instagram post metrics in Firestore', { postId });
 
       const firestoreMetrics: FirestoreInstagramMetrics = this.convertMetricsToFirestore(metrics);
-      
-      await this.db.collection(this.COLLECTION_NAME).doc(postId).update({
+      const updateData = this.cleanUndefinedValues({
         metrics: firestoreMetrics,
         lastUpdated: new Date().toISOString()
       });
+      
+      await this.db.collection(this.COLLECTION_NAME).doc(postId).update(updateData);
 
       logger.info('Successfully updated Instagram post metrics in Firestore', {
         postId,
@@ -521,7 +554,8 @@ export class FirebaseInstagramService {
         postsAnalyzed: analytics.posts.length
       };
 
-      await this.db.collection('instagram_analytics').doc('latest').set(analyticsDoc, { merge: true });
+      const cleanedAnalytics = this.cleanUndefinedValues(analyticsDoc);
+      await this.db.collection('instagram_analytics').doc('latest').set(cleanedAnalytics, { merge: true });
 
       logger.info('Successfully saved Instagram analytics summary to Firestore', {
         postsAnalyzed: analytics.posts.length,

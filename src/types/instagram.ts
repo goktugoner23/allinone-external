@@ -45,7 +45,7 @@ export interface InstagramPost {
   thumbnailUrl?: string;
   permalink: string;
   timestamp: string;
-  username: string;
+  username?: string;
   metrics: InstagramMetrics;
   hashtags: string[];
   mentions: string[];
@@ -172,7 +172,7 @@ export interface InstagramAnalytics {
     totalPosts: number;
     totalEngagement: number;
     avgEngagementRate: number;
-    topPerformingPost: InstagramPost;
+    topPerformingPost?: InstagramPost | null;
     recentGrowth: {
       followers: number;
       engagement: number;

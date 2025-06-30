@@ -33,6 +33,34 @@ export class InstagramPipeline {
   private readonly COLLECTION_NAME = 'instagram_business';
   private isInitialized = false;
 
+  /**
+   * Validate and clean post data before saving
+   */
+  private validateAndCleanPost(post: InstagramPost): InstagramPost {
+    return {
+      ...post,
+      // Ensure username is either a string or null, never undefined
+      username: post.username || null,
+      // Ensure caption is never undefined
+      caption: post.caption || '',
+      // Ensure hashtags and mentions are arrays
+      hashtags: post.hashtags || [],
+      mentions: post.mentions || [],
+      // Ensure metrics values are numbers, not undefined
+      metrics: {
+        ...post.metrics,
+        likesCount: post.metrics.likesCount || 0,
+        commentsCount: post.metrics.commentsCount || 0,
+        sharesCount: post.metrics.sharesCount || 0,
+        savesCount: post.metrics.savesCount || 0,
+        reachCount: post.metrics.reachCount || 0,
+        impressionsCount: post.metrics.impressionsCount || 0,
+        engagementRate: post.metrics.engagementRate || 0,
+        totalInteractions: post.metrics.totalInteractions || 0
+      }
+    };
+  }
+
   constructor(instagramConfig: InstagramConfig) {
     // Initialize Instagram API service
     this.instagramService = new InstagramService(instagramConfig);
@@ -43,6 +71,12 @@ export class InstagramPipeline {
     // Initialize Firebase
     this.initializeFirebase();
     this.db = getFirestore();
+    
+    // Configure Firestore to ignore undefined properties
+    this.db.settings({
+      ignoreUndefinedProperties: true
+    });
+    
     this.firebaseService = new FirebaseInstagramService();
   }
 
@@ -295,8 +329,10 @@ export class InstagramPipeline {
       
       // Only save new posts to avoid excess write operations
       if (newPosts.length > 0) {
-        await this.firebaseService.savePosts(newPosts);
-        storedCount = newPosts.length;
+        // Clean and validate posts before saving
+        const cleanedPosts = newPosts.map(post => this.validateAndCleanPost(post));
+        await this.firebaseService.savePosts(cleanedPosts);
+        storedCount = cleanedPosts.length;
         
         logger.info('Successfully stored new Instagram posts to Firestore', { 
           newPostsStored: storedCount
@@ -339,10 +375,11 @@ export class InstagramPipeline {
         ? posts.reduce((sum, post) => sum + post.metrics.engagementRate, 0) / posts.length 
         : 0;
       
-      const topPerformingPost = posts.reduce((top, post) => 
+      // Handle topPerformingPost with null checks
+      const topPerformingPost = posts.length > 0 ? posts.reduce((top, post) => 
         post.metrics.engagementRate > (top?.metrics.engagementRate || 0) ? post : top,
         posts[0]
-      );
+      ) : null;
       
       // Create content performance data
       const contentPerformance = posts.map(post => ({

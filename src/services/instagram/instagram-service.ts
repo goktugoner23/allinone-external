@@ -376,7 +376,7 @@ export class InstagramService {
       thumbnailUrl: rawPost.thumbnail_url,
       permalink: rawPost.permalink,
       timestamp: rawPost.timestamp,
-      username: rawPost.username,
+      username: rawPost.username || null,
       metrics,
       hashtags,
       mentions
