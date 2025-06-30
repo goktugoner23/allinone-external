@@ -178,6 +178,82 @@ export interface InstagramAnalytics {
       engagement: number;
       reach: number;
     };
+    // Enhanced analytics for social media managers
+    detailedMetrics?: {
+      totals: {
+        totalPosts: number;
+        totalLikes: number;
+        totalComments: number;
+        totalShares: number;
+        totalSaves: number;
+        totalReach: number;
+        totalImpressions: number;
+        totalVideoViews: number;
+        totalEngagement: number;
+        totalWatchTime: number;
+      };
+      averages: {
+        avgLikes: number;
+        avgComments: number;
+        avgShares: number;
+        avgSaves: number;
+        avgReach: number;
+        avgImpressions: number;
+        avgVideoViews: number;
+        avgEngagement: number;
+        avgEngagementRate: number;
+        avgWatchTime: number;
+      };
+      topPerformers: {
+        topByEngagement: InstagramPost;
+        topByLikes: InstagramPost;
+        topByComments: InstagramPost;
+        topByReach: InstagramPost;
+        topByShares: InstagramPost;
+        topBySaves: InstagramPost;
+      };
+      contentAnalysis: {
+        mediaTypeBreakdown: {
+          videos: { count: number; percentage: number; avgEngagementRate: number; };
+          images: { count: number; percentage: number; avgEngagementRate: number; };
+          carousels: { count: number; percentage: number; avgEngagementRate: number; };
+        };
+        postingFrequency: {
+          avgDaysBetweenPosts: number;
+          postsPerWeek: number;
+          postsPerMonth: number;
+        };
+        hashtagAnalysis: {
+          totalUniqueHashtags: number;
+          avgHashtagsPerPost: number;
+          topPerformingHashtags: Array<{
+            hashtag: string;
+            count: number;
+            totalEngagement: number;
+            avgEngagement: number;
+          }>;
+        };
+      };
+      engagementQuality: {
+        commentsToLikesRatio: number;
+        savesToReachRatio: number;
+        sharesToReachRatio: number;
+        reachToImpressionsRatio: number;
+        engagementScore: number;
+        viralityScore: number;
+      };
+      trends: {
+        recentEngagementTrend: number;
+        recentReachTrend: number;
+        trendDirection: 'improving' | 'declining' | 'stable' | 'insufficient_data';
+      };
+      performance: {
+        highPerformingPosts: number;
+        lowPerformingPosts: number;
+        consistencyScore: number;
+        growthPotential: number;
+      };
+    };
   };
 }
 

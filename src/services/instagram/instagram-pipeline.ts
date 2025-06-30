@@ -354,29 +354,35 @@ export class InstagramPipeline {
   }
 
   /**
-   * Generate analytics from posts for Kotlin app compatibility
+   * Generate comprehensive analytics from posts for social media management
    */
   private async generateAnalyticsFromPosts(posts: InstagramPost[]): Promise<InstagramAnalytics> {
     try {
       // Get account info
       const accountInfo = await this.instagramService.getAccountInfo();
       
-      // Calculate summary metrics
-      const totalEngagement = posts.reduce((sum, post) => 
-        sum + post.metrics.likesCount + post.metrics.commentsCount + (post.metrics.savesCount || 0) + (post.metrics.sharesCount || 0), 0
-      );
+      if (posts.length === 0) {
+        return {
+          account: accountInfo,
+          posts: [],
+          stories: [],
+          insights: [],
+          audienceInsights: { age: {}, gender: {}, country: {}, city: {}, locale: {} },
+          contentPerformance: [],
+          summary: {
+            totalPosts: 0,
+            totalEngagement: 0,
+            avgEngagementRate: 0,
+            topPerformingPost: null,
+            recentGrowth: { followers: 0, engagement: 0, reach: 0 }
+          }
+        };
+      }
+
+      // Calculate comprehensive summary metrics
+      const analytics = this.calculateComprehensiveAnalytics(posts);
       
-      const avgEngagementRate = posts.length > 0 
-        ? posts.reduce((sum, post) => sum + post.metrics.engagementRate, 0) / posts.length 
-        : 0;
-      
-      // Handle topPerformingPost with null checks
-      const topPerformingPost = posts.length > 0 ? posts.reduce((top, post) => 
-        post.metrics.engagementRate > (top?.metrics.engagementRate || 0) ? post : top,
-        posts[0]
-      ) : null;
-      
-      // Create content performance data
+      // Create enhanced content performance data
       const contentPerformance = posts.map(post => ({
         postId: post.id,
         shortcode: post.shortcode,
@@ -388,13 +394,13 @@ export class InstagramPipeline {
           reachEfficiency: this.calculateReachEfficiency(post.metrics),
         },
         benchmarks: {
-          avgLikes: posts.reduce((sum, p) => sum + p.metrics.likesCount, 0) / posts.length,
-          avgComments: posts.reduce((sum, p) => sum + p.metrics.commentsCount, 0) / posts.length,
-          avgEngagementRate: avgEngagementRate
+          avgLikes: analytics.averages.avgLikes,
+          avgComments: analytics.averages.avgComments,
+          avgEngagementRate: analytics.averages.avgEngagementRate
         }
       }));
-      
-      const analytics: InstagramAnalytics = {
+
+      const result: InstagramAnalytics = {
         account: accountInfo,
         posts,
         stories: [],
@@ -408,23 +414,311 @@ export class InstagramPipeline {
         },
         contentPerformance,
         summary: {
-          totalPosts: posts.length,
-          totalEngagement,
-          avgEngagementRate,
-          topPerformingPost,
+          totalPosts: analytics.totals.totalPosts,
+          totalEngagement: analytics.totals.totalEngagement,
+          avgEngagementRate: analytics.averages.avgEngagementRate,
+          topPerformingPost: analytics.topPerformers.topByEngagement,
           recentGrowth: {
             followers: 0,
-            engagement: 0,
-            reach: 0
+            engagement: analytics.trends.recentEngagementTrend,
+            reach: analytics.trends.recentReachTrend
+          },
+          // Enhanced analytics for social media managers
+          detailedMetrics: {
+            totals: analytics.totals,
+            averages: analytics.averages,
+            topPerformers: analytics.topPerformers,
+            contentAnalysis: analytics.contentAnalysis,
+            engagementQuality: analytics.engagementQuality,
+            trends: analytics.trends,
+            performance: analytics.performance
           }
         }
       };
       
-      return analytics;
+      return result;
     } catch (error) {
       logger.error('Error generating analytics from posts:', error);
       throw error;
     }
+  }
+
+  /**
+   * Calculate comprehensive analytics for social media management
+   */
+  private calculateComprehensiveAnalytics(posts: InstagramPost[]) {
+    const totalPosts = posts.length;
+    
+    // Calculate totals
+    const totals = {
+      totalPosts,
+      totalLikes: posts.reduce((sum, post) => sum + post.metrics.likesCount, 0),
+      totalComments: posts.reduce((sum, post) => sum + post.metrics.commentsCount, 0),
+      totalShares: posts.reduce((sum, post) => sum + (post.metrics.sharesCount || 0), 0),
+      totalSaves: posts.reduce((sum, post) => sum + (post.metrics.savesCount || 0), 0),
+      totalReach: posts.reduce((sum, post) => sum + (post.metrics.reachCount || 0), 0),
+      totalImpressions: posts.reduce((sum, post) => sum + (post.metrics.impressionsCount || 0), 0),
+      totalVideoViews: posts.reduce((sum, post) => sum + (post.metrics.videoViewsCount || 0), 0),
+      totalEngagement: posts.reduce((sum, post) => 
+        sum + post.metrics.likesCount + post.metrics.commentsCount + 
+        (post.metrics.savesCount || 0) + (post.metrics.sharesCount || 0), 0
+      ),
+      totalWatchTime: posts.reduce((sum, post) => sum + (post.metrics.igReelsAvgWatchTime || 0), 0)
+    };
+
+    // Calculate averages
+    const averages = {
+      avgLikes: totalPosts > 0 ? Math.round(totals.totalLikes / totalPosts) : 0,
+      avgComments: totalPosts > 0 ? Math.round(totals.totalComments / totalPosts) : 0,
+      avgShares: totalPosts > 0 ? Math.round(totals.totalShares / totalPosts) : 0,
+      avgSaves: totalPosts > 0 ? Math.round(totals.totalSaves / totalPosts) : 0,
+      avgReach: totalPosts > 0 ? Math.round(totals.totalReach / totalPosts) : 0,
+      avgImpressions: totalPosts > 0 ? Math.round(totals.totalImpressions / totalPosts) : 0,
+      avgVideoViews: totalPosts > 0 ? Math.round(totals.totalVideoViews / totalPosts) : 0,
+      avgEngagement: totalPosts > 0 ? Math.round(totals.totalEngagement / totalPosts) : 0,
+      avgEngagementRate: totalPosts > 0 ? 
+        Number((posts.reduce((sum, post) => sum + post.metrics.engagementRate, 0) / totalPosts).toFixed(2)) : 0,
+      avgWatchTime: totalPosts > 0 ? Math.round(totals.totalWatchTime / totalPosts) : 0
+    };
+
+    // Find top performers
+    const topPerformers = {
+      topByEngagement: posts.reduce((top, post) => 
+        post.metrics.engagementRate > (top?.metrics.engagementRate || 0) ? post : top, posts[0]),
+      topByLikes: posts.reduce((top, post) => 
+        post.metrics.likesCount > (top?.metrics.likesCount || 0) ? post : top, posts[0]),
+      topByComments: posts.reduce((top, post) => 
+        post.metrics.commentsCount > (top?.metrics.commentsCount || 0) ? post : top, posts[0]),
+      topByReach: posts.reduce((top, post) => 
+        (post.metrics.reachCount || 0) > (top?.metrics.reachCount || 0) ? post : top, posts[0]),
+      topByShares: posts.reduce((top, post) => 
+        (post.metrics.sharesCount || 0) > (top?.metrics.sharesCount || 0) ? post : top, posts[0]),
+      topBySaves: posts.reduce((top, post) => 
+        (post.metrics.savesCount || 0) > (top?.metrics.savesCount || 0) ? post : top, posts[0])
+    };
+
+    // Content analysis
+    const videosPosts = posts.filter(post => post.mediaType === 'VIDEO');
+    const imagePosts = posts.filter(post => post.mediaType === 'IMAGE');
+    const carouselPosts = posts.filter(post => post.mediaType === 'CAROUSEL_ALBUM');
+
+    const contentAnalysis = {
+      mediaTypeBreakdown: {
+        videos: {
+          count: videosPosts.length,
+          percentage: totalPosts > 0 ? Number(((videosPosts.length / totalPosts) * 100).toFixed(1)) : 0,
+          avgEngagementRate: videosPosts.length > 0 ? 
+            Number((videosPosts.reduce((sum, post) => sum + post.metrics.engagementRate, 0) / videosPosts.length).toFixed(2)) : 0
+        },
+        images: {
+          count: imagePosts.length,
+          percentage: totalPosts > 0 ? Number(((imagePosts.length / totalPosts) * 100).toFixed(1)) : 0,
+          avgEngagementRate: imagePosts.length > 0 ? 
+            Number((imagePosts.reduce((sum, post) => sum + post.metrics.engagementRate, 0) / imagePosts.length).toFixed(2)) : 0
+        },
+        carousels: {
+          count: carouselPosts.length,
+          percentage: totalPosts > 0 ? Number(((carouselPosts.length / totalPosts) * 100).toFixed(1)) : 0,
+          avgEngagementRate: carouselPosts.length > 0 ? 
+            Number((carouselPosts.reduce((sum, post) => sum + post.metrics.engagementRate, 0) / carouselPosts.length).toFixed(2)) : 0
+        }
+      },
+      postingFrequency: this.calculatePostingFrequency(posts),
+      hashtagAnalysis: this.analyzeHashtags(posts)
+    };
+
+    // Engagement quality metrics
+    const engagementQuality = {
+      commentsToLikesRatio: totals.totalLikes > 0 ? 
+        Number((totals.totalComments / totals.totalLikes).toFixed(3)) : 0,
+      savesToReachRatio: totals.totalReach > 0 ? 
+        Number(((totals.totalSaves / totals.totalReach) * 100).toFixed(2)) : 0,
+      sharesToReachRatio: totals.totalReach > 0 ? 
+        Number(((totals.totalShares / totals.totalReach) * 100).toFixed(2)) : 0,
+      reachToImpressionsRatio: totals.totalImpressions > 0 ? 
+        Number(((totals.totalReach / totals.totalImpressions) * 100).toFixed(2)) : 0,
+      engagementScore: this.calculateOverallEngagementScore(posts),
+      viralityScore: this.calculateOverallViralityScore(posts)
+    };
+
+    // Performance trends (last 10 posts vs previous posts)
+    const trends = this.calculatePerformanceTrends(posts);
+
+    // Performance benchmarks
+    const performance = {
+      highPerformingPosts: posts.filter(post => post.metrics.engagementRate > averages.avgEngagementRate * 1.5).length,
+      lowPerformingPosts: posts.filter(post => post.metrics.engagementRate < averages.avgEngagementRate * 0.5).length,
+      consistencyScore: this.calculateConsistencyScore(posts),
+      growthPotential: this.calculateGrowthPotential(posts)
+    };
+
+    return {
+      totals,
+      averages,
+      topPerformers,
+      contentAnalysis,
+      engagementQuality,
+      trends,
+      performance
+    };
+  }
+
+  /**
+   * Calculate posting frequency analysis
+   */
+  private calculatePostingFrequency(posts: InstagramPost[]) {
+    if (posts.length < 2) return { avgDaysBetweenPosts: 0, postsPerWeek: 0, postsPerMonth: 0 };
+
+    const sortedPosts = posts.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    const firstPost = new Date(sortedPosts[sortedPosts.length - 1].timestamp);
+    const lastPost = new Date(sortedPosts[0].timestamp);
+    const daysBetween = Math.ceil((lastPost.getTime() - firstPost.getTime()) / (1000 * 60 * 60 * 24));
+    
+    return {
+      avgDaysBetweenPosts: daysBetween > 0 ? Number((daysBetween / posts.length).toFixed(1)) : 0,
+      postsPerWeek: daysBetween > 0 ? Number(((posts.length / daysBetween) * 7).toFixed(1)) : 0,
+      postsPerMonth: daysBetween > 0 ? Number(((posts.length / daysBetween) * 30).toFixed(1)) : 0
+    };
+  }
+
+  /**
+   * Analyze hashtag performance
+   */
+  private analyzeHashtags(posts: InstagramPost[]) {
+    const hashtagFrequency: { [key: string]: { count: number; totalEngagement: number; avgEngagement: number } } = {};
+    
+    posts.forEach(post => {
+      const engagement = post.metrics.likesCount + post.metrics.commentsCount + 
+        (post.metrics.savesCount || 0) + (post.metrics.sharesCount || 0);
+      
+      post.hashtags.forEach(hashtag => {
+        if (!hashtagFrequency[hashtag]) {
+          hashtagFrequency[hashtag] = { count: 0, totalEngagement: 0, avgEngagement: 0 };
+        }
+        hashtagFrequency[hashtag].count += 1;
+        hashtagFrequency[hashtag].totalEngagement += engagement;
+      });
+    });
+
+    // Calculate averages and sort by performance
+    Object.keys(hashtagFrequency).forEach(hashtag => {
+      hashtagFrequency[hashtag].avgEngagement = Math.round(
+        hashtagFrequency[hashtag].totalEngagement / hashtagFrequency[hashtag].count
+      );
+    });
+
+    const topHashtags = Object.entries(hashtagFrequency)
+      .sort(([,a], [,b]) => b.avgEngagement - a.avgEngagement)
+      .slice(0, 10)
+      .map(([hashtag, data]) => ({ hashtag, ...data }));
+
+    return {
+      totalUniqueHashtags: Object.keys(hashtagFrequency).length,
+      avgHashtagsPerPost: posts.length > 0 ? 
+        Number((posts.reduce((sum, post) => sum + post.hashtags.length, 0) / posts.length).toFixed(1)) : 0,
+      topPerformingHashtags: topHashtags
+    };
+  }
+
+  /**
+   * Calculate performance trends
+   */
+  private calculatePerformanceTrends(posts: InstagramPost[]) {
+    if (posts.length < 10) {
+      return {
+        recentEngagementTrend: 0,
+        recentReachTrend: 0,
+        trendDirection: 'insufficient_data' as const
+      };
+    }
+
+    const sortedPosts = posts.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    const recentPosts = sortedPosts.slice(0, 10);
+    const olderPosts = sortedPosts.slice(10, 20);
+
+    const recentAvgEngagement = recentPosts.reduce((sum, post) => sum + post.metrics.engagementRate, 0) / recentPosts.length;
+    const olderAvgEngagement = olderPosts.length > 0 ? 
+      olderPosts.reduce((sum, post) => sum + post.metrics.engagementRate, 0) / olderPosts.length : recentAvgEngagement;
+
+    const recentAvgReach = recentPosts.reduce((sum, post) => sum + (post.metrics.reachCount || 0), 0) / recentPosts.length;
+    const olderAvgReach = olderPosts.length > 0 ? 
+      olderPosts.reduce((sum, post) => sum + (post.metrics.reachCount || 0), 0) / olderPosts.length : recentAvgReach;
+
+    const engagementTrend = olderAvgEngagement > 0 ? 
+      Number((((recentAvgEngagement - olderAvgEngagement) / olderAvgEngagement) * 100).toFixed(2)) : 0;
+    const reachTrend = olderAvgReach > 0 ? 
+      Number((((recentAvgReach - olderAvgReach) / olderAvgReach) * 100).toFixed(2)) : 0;
+
+    let trendDirection: 'improving' | 'declining' | 'stable' | 'insufficient_data' = 'stable';
+    if (engagementTrend > 5) trendDirection = 'improving';
+    else if (engagementTrend < -5) trendDirection = 'declining';
+
+    return {
+      recentEngagementTrend: engagementTrend,
+      recentReachTrend: reachTrend,
+      trendDirection
+    };
+  }
+
+  /**
+   * Calculate overall engagement score
+   */
+  private calculateOverallEngagementScore(posts: InstagramPost[]): number {
+    if (posts.length === 0) return 0;
+    
+    const totalEngagement = posts.reduce((sum, post) => 
+      sum + post.metrics.likesCount + (post.metrics.commentsCount * 2) + 
+      (post.metrics.savesCount || 0) * 3 + (post.metrics.sharesCount || 0) * 4, 0);
+    const totalReach = posts.reduce((sum, post) => sum + (post.metrics.reachCount || 1), 0);
+    
+    return Number(((totalEngagement / totalReach) * 100).toFixed(2));
+  }
+
+  /**
+   * Calculate overall virality score
+   */
+  private calculateOverallViralityScore(posts: InstagramPost[]): number {
+    if (posts.length === 0) return 0;
+    
+    const totalShares = posts.reduce((sum, post) => sum + (post.metrics.sharesCount || 0), 0);
+    const totalSaves = posts.reduce((sum, post) => sum + (post.metrics.savesCount || 0), 0);
+    const totalReach = posts.reduce((sum, post) => sum + (post.metrics.reachCount || 1), 0);
+    
+    return Number((((totalShares * 10 + totalSaves * 5) / totalReach) * 100).toFixed(2));
+  }
+
+  /**
+   * Calculate consistency score
+   */
+  private calculateConsistencyScore(posts: InstagramPost[]): number {
+    if (posts.length < 2) return 100;
+    
+    const engagementRates = posts.map(post => post.metrics.engagementRate);
+    const mean = engagementRates.reduce((sum, rate) => sum + rate, 0) / engagementRates.length;
+    const variance = engagementRates.reduce((sum, rate) => sum + Math.pow(rate - mean, 2), 0) / engagementRates.length;
+    const standardDeviation = Math.sqrt(variance);
+    
+    // Lower standard deviation = higher consistency (inverse relationship)
+    const consistencyScore = Math.max(0, 100 - (standardDeviation * 10));
+    return Number(consistencyScore.toFixed(1));
+  }
+
+  /**
+   * Calculate growth potential score
+   */
+  private calculateGrowthPotential(posts: InstagramPost[]): number {
+    if (posts.length === 0) return 0;
+    
+    const recentPosts = posts.slice(0, Math.min(10, posts.length));
+    const avgEngagementRate = recentPosts.reduce((sum, post) => sum + post.metrics.engagementRate, 0) / recentPosts.length;
+    const avgSaveRate = recentPosts.reduce((sum, post) => 
+      sum + ((post.metrics.savesCount || 0) / (post.metrics.reachCount || 1)) * 100, 0) / recentPosts.length;
+    const avgShareRate = recentPosts.reduce((sum, post) => 
+      sum + ((post.metrics.sharesCount || 0) / (post.metrics.reachCount || 1)) * 100, 0) / recentPosts.length;
+    
+    // Growth potential based on engagement quality and virality indicators
+    const growthScore = (avgEngagementRate * 0.4) + (avgSaveRate * 30) + (avgShareRate * 50);
+    return Number(Math.min(100, growthScore).toFixed(1));
   }
 
   /**
@@ -685,40 +979,40 @@ export class InstagramPipeline {
   }
 
   /**
-   * Get account analytics with fresh data
+   * Get comprehensive account analytics using stored data (no additional Instagram API calls)
    */
-  async getAccountAnalytics(): Promise<any> {
+  async getAccountAnalytics(): Promise<InstagramAnalytics> {
     try {
-      logger.info('Fetching account analytics');
+      logger.info('Generating comprehensive analytics from stored data');
       
-      // Get account info from Instagram API
+      // Get account info from Instagram API (lightweight call for fresh account stats)
       const accountInfo = await this.instagramService.getAccountInfo();
       
-      // Get posts from Firestore (stored data)
-      const firestorePosts = await this.firebaseService.getAllPosts();
+             // Get posts from Firestore (stored data - no additional Instagram API calls)
+       // getAllPosts() already returns InstagramPost[] format
+       const instagramPosts = await this.firebaseService.getAllPosts();
+
+      // Generate comprehensive analytics using our enhanced method
+      const analytics = await this.generateAnalyticsFromPosts(instagramPosts);
       
-      // Calculate analytics
-      const analytics = {
-        account: accountInfo,
-        posts: firestorePosts,
-        summary: {
-          totalPosts: firestorePosts.length,
-          totalEngagement: firestorePosts.reduce((sum, post) => 
-            sum + post.metrics.likesCount + post.metrics.commentsCount, 0
-          ),
-          avgEngagementRate: firestorePosts.length > 0 
-            ? firestorePosts.reduce((sum, post) => sum + post.metrics.engagementRate, 0) / firestorePosts.length 
-            : 0,
-          lastUpdate: new Date().toISOString()
-        }
-      };
+      // Override account info with fresh data
+      analytics.account = accountInfo;
+
+      logger.info('Successfully generated comprehensive analytics', {
+        totalPosts: analytics.summary.totalPosts,
+        totalEngagement: analytics.summary.totalEngagement,
+        avgEngagementRate: analytics.summary.avgEngagementRate,
+        hasDetailedMetrics: !!analytics.summary.detailedMetrics
+      });
 
       return analytics;
     } catch (error) {
-      logger.error('Failed to get account analytics:', error);
+      logger.error('Failed to generate account analytics:', error);
       throw error;
     }
   }
+
+
 
   /**
    * Get cache statistics
