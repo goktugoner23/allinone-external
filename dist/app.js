@@ -18,8 +18,15 @@ const app = (0, express_1.default)();
 const server = http_1.default.createServer(app);
 const wss = new ws_1.default.Server({ server });
 // Configure trust proxy for rate limiting
-// Only trust the first proxy (typically a reverse proxy like nginx)
-app.set('trust proxy', 1);
+// For DigitalOcean deployment, be more specific about trusted proxies
+if (config_1.default.nodeEnv === 'production') {
+    // Trust specific proxy networks (adjust based on your infrastructure)
+    app.set('trust proxy', ['127.0.0.1', '::1', '10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16']);
+}
+else {
+    // Development - trust localhost
+    app.set('trust proxy', ['127.0.0.1', '::1']);
+}
 // Initialize services
 const serviceManager = services_1.default.getInstance();
 const binanceService = serviceManager.getBinanceService();
@@ -148,7 +155,7 @@ async function startServer() {
             console.warn('RAG endpoints will not be available until service is initialized');
         }
         // Start HTTP server
-        server.listen(config_1.default.port, () => {
+        server.listen(config_1.default.port, '0.0.0.0', () => {
             console.log(`🚀 Server running on port ${config_1.default.port}`);
             console.log(`📊 Environment: ${config_1.default.nodeEnv}`);
             console.log(`🔗 WebSocket server ready`);

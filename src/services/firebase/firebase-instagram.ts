@@ -85,10 +85,15 @@ export class FirebaseInstagramService {
 
     this.db = getFirestore();
     
-    // Configure Firestore to ignore undefined properties
-    this.db.settings({
-      ignoreUndefinedProperties: true
-    });
+    // Configure Firestore to ignore undefined properties (only if not already configured)
+    try {
+      this.db.settings({
+        ignoreUndefinedProperties: true
+      });
+    } catch (error) {
+      // Settings already applied, ignore error
+      logger.debug('Firestore settings already configured');
+    }
   }
 
   /**

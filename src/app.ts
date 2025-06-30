@@ -25,8 +25,14 @@ const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
 // Configure trust proxy for rate limiting
-// Only trust the first proxy (typically a reverse proxy like nginx)
-app.set('trust proxy', 1);
+// For DigitalOcean deployment, be more specific about trusted proxies
+if (config.nodeEnv === 'production') {
+  // Trust specific proxy networks (adjust based on your infrastructure)
+  app.set('trust proxy', ['127.0.0.1', '::1', '10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16']);
+} else {
+  // Development - trust localhost
+  app.set('trust proxy', ['127.0.0.1', '::1']);
+}
 
 // Initialize services
 const serviceManager = ServiceManager.getInstance();
@@ -180,7 +186,7 @@ async function startServer(): Promise<void> {
     }
     
     // Start HTTP server
-    server.listen(config.port, () => {
+    server.listen(config.port, '0.0.0.0', () => {
       console.log(`🚀 Server running on port ${config.port}`);
       console.log(`📊 Environment: ${config.nodeEnv}`);
       console.log(`🔗 WebSocket server ready`);

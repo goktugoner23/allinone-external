@@ -71,12 +71,7 @@ export class InstagramPipeline {
     // Initialize Firebase
     this.initializeFirebase();
     this.db = getFirestore();
-    
-    // Configure Firestore to ignore undefined properties
-    this.db.settings({
-      ignoreUndefinedProperties: true
-    });
-    
+
     this.firebaseService = new FirebaseInstagramService();
   }
 
