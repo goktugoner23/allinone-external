@@ -240,20 +240,126 @@ router.get('/health', asyncHandler(async (req: Request, res: Response) => {
 
 /**
  * GET /api/instagram/firestore/posts
- * Get Instagram posts from Firestore (existing data from your Kotlin app)
+ * Get Instagram posts from Firestore with automatic sync when post count differs
+ * Frontend-optimized: Uses cached data but auto-syncs when new posts detected
  */
-router.get('/firestore/posts', asyncHandler(async (req: Request, res: Response) => {
-  logger.info('Fetching Instagram posts from Firestore');
+router.get('/firestore/posts', [
+  query('forceSync').optional().isBoolean().toBoolean()
+], asyncHandler(async (req: Request, res: Response) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({
+      success: false,
+      error: 'Validation failed',
+      details: errors.array()
+    });
+  }
 
-  const posts = await firebaseInstagramService.getAllPosts();
+  const { forceSync = false } = req.query;
+  let syncTriggered = false;
+  let syncResult = null;
 
-  res.json({
-    success: true,
-    data: posts,
-    count: posts.length,
-    source: 'Firebase Firestore',
-    timestamp: Date.now()
-  });
+  logger.info('Fetching Instagram posts from Firestore with smart sync check', { forceSync });
+
+  try {
+    // Always get current stored posts first (fast)
+    const storedPosts = await firebaseInstagramService.getAllPosts();
+    const storedCount = storedPosts.length;
+
+    // Check if we need to sync (only if Instagram API is configured)
+    if (instagramConfig.accessToken && (forceSync || storedCount === 0)) {
+      logger.info('Checking for new posts on Instagram', { storedCount, forceSync });
+      
+      try {
+        // Get current account info (lightweight API call)
+        const accountInfo = await instagramService.getAccountInfo();
+        const currentCount = accountInfo.mediaCount;
+
+        logger.info('Post count comparison', { 
+          stored: storedCount, 
+          current: currentCount, 
+          difference: currentCount - storedCount 
+        });
+
+        // Sync if post counts differ or forced
+        if (forceSync || currentCount !== storedCount) {
+          logger.info('Post count mismatch detected - triggering sync', {
+            storedCount,
+            currentCount,
+            forced: forceSync
+          });
+
+          syncTriggered = true;
+          
+          // Trigger sync with reasonable limit
+          const syncLimit = Math.max(25, currentCount - storedCount + 5);
+          syncResult = await instagramPipeline.processInstagramData(syncLimit);
+
+          if (syncResult.success) {
+            logger.info('Auto-sync completed successfully', {
+              newPosts: syncResult.data?.postsProcessed || 0,
+              processingTime: syncResult.processingTime
+            });
+            
+            // Get updated posts after sync
+            const updatedPosts = await firebaseInstagramService.getAllPosts();
+            
+            return res.json({
+              success: true,
+              data: updatedPosts,
+              count: updatedPosts.length,
+              source: 'Firebase Firestore (Auto-synced)',
+              syncInfo: {
+                triggered: true,
+                reason: forceSync ? 'forced' : 'post_count_mismatch',
+                previousCount: storedCount,
+                currentCount: updatedPosts.length,
+                newPosts: updatedPosts.length - storedCount,
+                processingTime: syncResult.processingTime
+              },
+              timestamp: Date.now()
+            });
+          } else {
+            logger.warn('Auto-sync failed, returning stored data', {
+              error: syncResult.error
+            });
+            // Fall through to return stored data with sync error info
+          }
+        } else {
+          logger.info('Post counts match - no sync needed', { count: storedCount });
+        }
+      } catch (apiError) {
+        logger.warn('Failed to check Instagram API for new posts, using stored data', {
+          error: apiError instanceof Error ? apiError.message : 'Unknown error'
+        });
+        // Fall through to return stored data
+      }
+    }
+
+    // Return stored data (either no sync needed or sync failed)
+    res.json({
+      success: true,
+      data: storedPosts,
+      count: storedPosts.length,
+      source: 'Firebase Firestore' + (syncTriggered ? ' (Sync attempted)' : ''),
+      syncInfo: {
+        triggered: syncTriggered,
+        success: syncResult?.success || false,
+        error: syncResult?.error || null,
+        reason: forceSync ? 'forced' : 'no_sync_needed'
+      },
+      timestamp: Date.now()
+    });
+
+  } catch (error) {
+    logger.error('Error in smart firestore posts endpoint:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch Instagram posts',
+      details: error instanceof Error ? error.message : 'Unknown error',
+      timestamp: Date.now()
+    });
+  }
 }));
 
 /**
