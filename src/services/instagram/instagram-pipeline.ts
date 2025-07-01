@@ -21,6 +21,12 @@ export interface InstagramPipelineResult {
     cacheUsed: boolean;
     cacheReason?: string;
     autoSyncEnabled?: boolean;
+    fullSyncTriggered?: boolean;
+    countMismatch?: {
+      instagram: number;
+      firestore: number;
+      difference: number;
+    };
   };
   error?: string;
   processingTime: number;
@@ -170,7 +176,7 @@ export class InstagramPipeline {
   }
 
   /**
-   * Main pipeline method with smart caching - only fetch if needed
+   * Main pipeline method with smart caching and automatic full sync when counts don't match
    */
   async processInstagramData(limit: number = 25): Promise<InstagramPipelineResult> {
     const startTime = Date.now();
@@ -184,17 +190,54 @@ export class InstagramPipeline {
       // Step 1: Get current total posts count from Instagram API (lightweight check)
       logger.info('Step 1: Checking current Instagram post count');
       const accountInfo = await this.instagramService.getAccountInfo();
-      const currentTotalPosts = accountInfo.mediaCount;
+      const instagramTotalPosts = accountInfo.mediaCount;
       
-      logger.info(`Current Instagram total posts: ${currentTotalPosts}`);
+      logger.info(`Current Instagram total posts: ${instagramTotalPosts}`);
 
-      // Step 2: Check if cache needs refresh
-      logger.info('Step 2: Checking cache status');
-      const cacheCheck = await this.cacheService.shouldRefreshCache(currentTotalPosts);
+      // Step 2: Get Firestore posts count to compare
+      logger.info('Step 2: Checking Firestore post count');
+      const firestorePosts = await this.firebaseService.getAllPosts();
+      const firestoreTotalPosts = firestorePosts.length;
+      
+      logger.info(`Current Firestore total posts: ${firestoreTotalPosts}`);
+
+      // Step 3: Determine if we need full sync (count mismatch) or normal operation
+      const countMismatch = Math.abs(instagramTotalPosts - firestoreTotalPosts) > 0;
+      let actualLimit = limit;
+      let fullSyncReason = '';
+
+      if (countMismatch) {
+        // Auto full sync when counts don't match
+        actualLimit = instagramTotalPosts; // Pull ALL posts from Instagram
+        fullSyncReason = `Count mismatch detected: Instagram(${instagramTotalPosts}) vs Firestore(${firestoreTotalPosts})`;
+        logger.warn('COUNT MISMATCH DETECTED - Executing automatic full sync', {
+          instagramCount: instagramTotalPosts,
+          firestoreCount: firestoreTotalPosts,
+          difference: Math.abs(instagramTotalPosts - firestoreTotalPosts),
+          newLimit: actualLimit
+        });
+      } else {
+        logger.info('Post counts match - continuing with normal sync', {
+          instagramCount: instagramTotalPosts,
+          firestoreCount: firestoreTotalPosts,
+          requestedLimit: limit
+        });
+      }
+
+      // Step 4: Check if cache needs refresh (only relevant for normal operation)
+      logger.info('Step 4: Checking cache status');
+      const cacheCheck = await this.cacheService.shouldRefreshCache(instagramTotalPosts);
+      
+      // Override cache for full sync scenarios
+      if (countMismatch) {
+        cacheCheck.shouldRefresh = true;
+        cacheCheck.reason = fullSyncReason;
+      }
       
       logger.info('Cache check result:', {
         shouldRefresh: cacheCheck.shouldRefresh,
-        reason: cacheCheck.reason
+        reason: cacheCheck.reason,
+        fullSyncTriggered: countMismatch
       });
 
       let posts: InstagramPost[];
@@ -204,9 +247,9 @@ export class InstagramPipeline {
       let cacheUsed = false;
       let cacheReason = cacheCheck.reason;
 
-      if (!cacheCheck.shouldRefresh && cacheCheck.cacheData) {
-        // Use cached data
-        logger.info('Step 3: Using cached data');
+      if (!cacheCheck.shouldRefresh && cacheCheck.cacheData && !countMismatch) {
+        // Use cached data (only if no count mismatch)
+        logger.info('Step 5: Using cached data');
         posts = cacheCheck.cacheData.posts;
         cacheUsed = true;
         
@@ -215,38 +258,50 @@ export class InstagramPipeline {
         
         logger.info(`Returned ${posts.length} posts from cache`);
       } else {
-        // Execute full pipeline
-        logger.info('Step 3: Executing full pipeline (cache refresh needed)');
+        // Execute full pipeline (either cache refresh needed OR count mismatch detected)
+        const pipelineReason = countMismatch ? 'FULL SYNC (count mismatch)' : 'cache refresh needed';
+        logger.info(`Step 5: Executing full pipeline (${pipelineReason})`);
         
-        // Step 3a: Fetch data from Instagram API
-        logger.info('Step 3a: Fetching data from Instagram API');
-        const instagramResponse = await this.instagramService.getPosts(limit);
+        // Step 5a: Fetch data from Instagram API with actual limit
+        logger.info('Step 5a: Fetching data from Instagram API', { 
+          limit: actualLimit,
+          isFullSync: countMismatch 
+        });
+        const instagramResponse = await this.instagramService.getPosts(actualLimit);
         posts = instagramResponse.data;
         
-        logger.info(`Fetched ${posts.length} posts from Instagram API`);
+        logger.info(`Fetched ${posts.length} posts from Instagram API`, {
+          requested: actualLimit,
+          received: posts.length,
+          isFullSync: countMismatch
+        });
 
-        // Step 3b: Store data in Firestore
-        logger.info('Step 3b: Storing data in Firestore');
+        // Step 5b: Store data in Firestore
+        logger.info('Step 5b: Storing data in Firestore');
         totalStored = await this.storePostsInFirestore(posts);
         
         logger.info(`Stored ${totalStored} posts in Firestore`);
 
-        // Step 3c: Update cache with new data
-        logger.info('Step 3c: Updating cache');
-        await this.cacheService.writeCache(posts, accountInfo, currentTotalPosts);
+        // Step 5c: Update cache with new data
+        logger.info('Step 5c: Updating cache');
+        await this.cacheService.writeCache(posts, accountInfo, instagramTotalPosts);
         
         logger.info('Cache updated successfully');
 
-        // Step 3d: Sync to RAG system (enhanced with better error handling and status)
+        // Step 5d: Sync to RAG system (enhanced with better error handling and status)
         if (this.ragIntegration && this.autoSyncRAG) {
           try {
-            logger.info('Step 3d: Syncing to RAG system (auto-sync enabled)');
+            logger.info('Step 5d: Syncing to RAG system (auto-sync enabled)', {
+              isFullSync: countMismatch,
+              postsToSync: posts.length
+            });
             const ragSyncResult = await this.ragIntegration.syncFirestoreDataToRAG();
             ragSynced = true;
             ragStatus = ragSyncResult.status;
             logger.info('Successfully synced to RAG system', {
               postsCount: ragSyncResult.postsCount,
-              status: ragSyncResult.status
+              status: ragSyncResult.status,
+              isFullSync: countMismatch
             });
           } catch (error) {
             logger.warn('RAG sync failed, continuing without it:', error);
@@ -261,10 +316,12 @@ export class InstagramPipeline {
         }
 
         cacheUsed = false;
-        cacheReason = 'Full pipeline executed - cache refreshed';
+        cacheReason = countMismatch ? 
+          `Full sync executed - ${fullSyncReason}` : 
+          'Full pipeline executed - cache refreshed';
       }
 
-      // Step 4: Return processed data
+      // Step 6: Return processed data
       const result: InstagramPipelineResult = {
         success: true,
         data: {
@@ -276,19 +333,38 @@ export class InstagramPipeline {
           lastSync: new Date().toISOString(),
           cacheUsed,
           cacheReason,
-          autoSyncEnabled: this.autoSyncRAG
+          autoSyncEnabled: this.autoSyncRAG,
+          ...(countMismatch && { 
+            fullSyncTriggered: true,
+            countMismatch: {
+              instagram: instagramTotalPosts,
+              firestore: firestoreTotalPosts,
+              difference: Math.abs(instagramTotalPosts - firestoreTotalPosts)
+            }
+          })
         },
         processingTime: Date.now() - startTime
       };
 
-      logger.info('Smart Instagram data pipeline completed successfully', {
-        totalReturned: posts.length,
-        totalStored,
-        ragSynced,
-        cacheUsed,
-        cacheReason,
-        processingTime: result.processingTime
-      });
+      if (countMismatch) {
+        logger.warn('FULL SYNC COMPLETED due to count mismatch', {
+          instagramCount: instagramTotalPosts,
+          firestoreCountBefore: firestoreTotalPosts,
+          postsFetched: posts.length,
+          postsStored: totalStored,
+          ragSynced,
+          processingTime: result.processingTime
+        });
+      } else {
+        logger.info('Smart Instagram data pipeline completed successfully', {
+          totalReturned: posts.length,
+          totalStored,
+          ragSynced,
+          cacheUsed,
+          cacheReason,
+          processingTime: result.processingTime
+        });
+      }
 
       return result;
 
