@@ -120,7 +120,7 @@ const config: Config = {
     },
     retrieval: {
       defaultTopK: parseInt(process.env.RAG_DEFAULT_TOP_K || '5', 10),
-      minScore: parseFloat(process.env.RAG_MIN_SCORE || '0.7')
+      minScore: parseFloat(process.env.RAG_MIN_SCORE || '0.5')
     }
   },
   openai: {

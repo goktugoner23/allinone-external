@@ -254,14 +254,13 @@ Instagram Content Enhancement Rules:
 - "popular content" → "trending viral high engagement popular trending"
 - "content strategy" → "content themes topics hashtags strategy patterns"
 
-Transform the user's question into an expanded search query that includes:
-1. Core intent keywords
-2. Instagram-specific terminology (likes, comments, engagement, reach, impressions)
-3. Content type indicators (post, video, photo, reel, carousel)
-4. Performance metrics terms when relevant
-5. Synonyms and related terms for better matching
+Transform the user's question into a focused search query for Instagram content that includes:
+1. Core intent keywords from the user's question
+2. Relevant Instagram terms (likes, comments, engagement, reach, impressions) only if performance-related
+3. Content type indicators only if mentioned (post, video, photo, reel, carousel)
+4. Keep it concise and relevant to the original question
 
-Return ONLY the enhanced search query string, nothing else.`;
+Return ONLY the enhanced search query string as keywords, nothing else. Do not return explanatory text or sentences.`;
 
       const response = await this.client.chat.completions.create({
         model: config.rag.completion.model,
@@ -321,21 +320,15 @@ Extract semantic meaning for Instagram content:
 
 Return JSON in this exact format:
 {
-  "semanticQuery": "enhanced Instagram-focused search query with metrics terms",
+  "semanticQuery": "focused search terms based on user query",
   "filters": {
-    "domain": "instagram",
-    "tags": ["engagement", "performance", "metrics"],
-    "contentType": "post|video|carousel|reel",
-    "dateRange": {
-      "start": "YYYY-MM-DD",
-      "end": "YYYY-MM-DD"
-    }
+    "domain": "instagram"
   },
   "confidence": 0.95,
-  "reasoning": "explanation of Instagram-specific query enhancement"
+  "reasoning": "explanation of query processing"
 }
 
-Only include filters that are clearly indicated in the query. Default domain to "instagram" for Instagram-related questions.`;
+Only add tags, contentType, or dateRange filters if explicitly mentioned in the user's query. Keep the semanticQuery focused and relevant to what the user actually asked.`;
   }
 
   /**
