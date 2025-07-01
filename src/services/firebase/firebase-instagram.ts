@@ -729,6 +729,58 @@ export class FirebaseInstagramService {
       return results;
     }
   }
+
+  /**
+   * Get posts that are missing thumbnail URLs
+   */
+  async getPostsMissingThumbnailUrls(postIds: string[]): Promise<string[]> {
+    try {
+      logger.debug('Checking for posts missing thumbnail URLs', { count: postIds.length });
+
+      const docRefs = postIds.map(id => this.db.collection(this.COLLECTION_NAME).doc(id));
+      const docs = await this.db.getAll(...docRefs);
+      
+      const postsNeedingUpdate: string[] = [];
+      docs.forEach((doc, index) => {
+        if (doc.exists) {
+          const data = doc.data();
+          // Check if thumbnailUrl field is missing, empty, or undefined
+          if (!data?.thumbnailUrl || data.thumbnailUrl === '') {
+            postsNeedingUpdate.push(postIds[index]);
+          }
+        }
+      });
+
+      logger.debug('Thumbnail URL check completed', {
+        total: postIds.length,
+        needingUpdate: postsNeedingUpdate.length
+      });
+
+      return postsNeedingUpdate;
+    } catch (error) {
+      logger.error('Error checking posts for missing thumbnail URLs:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Update a post's thumbnail URL in Firestore
+   */
+  async updatePostThumbnailUrl(postId: string, thumbnailUrl: string): Promise<void> {
+    try {
+      logger.debug('Updating post thumbnail URL in Firestore', { postId, thumbnailUrl: thumbnailUrl.substring(0, 50) + '...' });
+
+      await this.db.collection(this.COLLECTION_NAME).doc(postId).update({
+        thumbnailUrl: thumbnailUrl,
+        lastUpdated: new Date().toISOString()
+      });
+
+      logger.debug('Successfully updated post thumbnail URL', { postId });
+    } catch (error) {
+      logger.error('Error updating post thumbnail URL in Firestore:', error);
+      throw new Error(`Failed to update thumbnail URL for post ${postId}: ${error}`);
+    }
+  }
 }
 
 export default FirebaseInstagramService; 

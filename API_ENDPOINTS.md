@@ -1465,6 +1465,51 @@ Sync Firestore Instagram data to RAG system for AI queries.
 }
 ```
 
+## Data Migration Endpoints
+
+### POST /api/instagram/migrate/thumbnail-urls
+
+**🔧 Migration endpoint** to fix existing Firestore posts that are missing thumbnail URLs. This updates posts stored before thumbnail URL support was implemented.
+
+**Query Parameters:**
+- `limit` (optional): Number of posts to process (default: 50, max: 100)
+- `dryRun` (optional): Run without making changes to preview results (default: false)
+
+**Example:** `POST /api/instagram/migrate/thumbnail-urls?limit=25&dryRun=true`
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Successfully updated 23 posts with thumbnail URLs",
+  "data": {
+    "totalExisting": 150,
+    "needingUpdate": 87,
+    "fetchedFromAPI": 25,
+    "updated": 23,
+    "failed": 2,
+    "jsonRegenerated": true,
+    "updateResults": [
+      {
+        "postId": "17898870784439040",
+        "success": true,
+        "thumbnailUrl": "https://scontent.cdninstagram.com/v/t51.71878-15/..."
+      }
+    ]
+  },
+  "dryRun": false,
+  "processingTime": 8234,
+  "timestamp": 1640995200000
+}
+```
+
+**Important Notes:**
+- This migration fixes posts stored before thumbnail URL support
+- Fetches fresh data from Instagram API to get current thumbnail URLs
+- Automatically regenerates JSON files with updated data
+- Use `dryRun=true` to preview changes before applying them
+- Only processes posts that are actually missing thumbnail URLs
+
 ## Cache Management Endpoints
 
 ### GET /api/instagram/cache/stats

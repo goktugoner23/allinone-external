@@ -4,11 +4,20 @@ A comprehensive Node.js TypeScript service providing Binance trading API functio
 
 ## Features
 
-- **🏗️ Modular Architecture**: Organized route structure with separate modules for each trading service
+### Trading & Financial APIs
 - **📈 Spot Trading**: Complete Binance Spot trading API integration
 - **⚡ USD-M Futures**: Full USD-M Futures trading functionality
 - **🪙 COIN-M Futures**: Complete COIN-M Futures trading support
 - **🔌 Real-time WebSocket**: Live market data subscriptions and updates
+
+### Instagram Business Analytics
+- **📱 Instagram API Integration**: Complete Instagram Business API data pipeline
+- **🔥 Firestore Storage**: Store and manage Instagram posts with full metadata
+- **🤖 AI-Powered Analytics**: RAG system for intelligent Instagram content analysis
+- **🖼️ Rich Media Support**: Thumbnail URLs and complete media data for all posts
+
+### System Architecture
+- **🏗️ Modular Architecture**: Organized route structure with separate modules for each service
 - **🛡️ Comprehensive Validation**: Input validation middleware for all endpoints
 - **🚨 Error Handling**: Centralized error handling with proper HTTP status codes
 - **🧪 Unit Testing**: Complete test coverage with Jest
@@ -360,6 +369,15 @@ For support and questions:
 - Review the test files for usage examples
 
 ## Changelog
+
+### v1.1.0 (December 2024)
+- 🆕 **Instagram Business API Integration**: Complete Instagram data pipeline with Firestore storage
+- 🤖 **AI-Powered Analytics**: RAG system for intelligent Instagram post analysis
+- 🖼️ **Thumbnail URL Support**: All Instagram posts now include thumbnail URLs for rich media display
+- 🔄 **Data Migration Tools**: Automatic fixing of historical data missing thumbnail URLs
+- 📊 **Enhanced Analytics**: Comprehensive Instagram metrics tracking and analysis
+- 🔧 **Data Quality Improvements**: Automatic updates for existing posts missing media URLs
+- 📚 **Complete Documentation**: Frontend integration guides and API documentation
 
 ### v1.0.0
 - ✅ Initial release with organized route structure

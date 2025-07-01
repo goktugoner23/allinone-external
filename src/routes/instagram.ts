@@ -487,37 +487,154 @@ router.post('/firestore/sync-to-rag', asyncHandler(async (req: Request, res: Res
   logger.info('Starting sync of Firestore Instagram data to RAG');
 
   try {
-    // Import required services
-    const { RAGService } = await import('../services/rag-service');
-    const { InstagramRAGIntegration } = await import('../services/instagram/instagram-rag-integration');
-    const OpenAIClient = (await import('../clients/openai')).default;
-    const EmbeddingService = (await import('../services/embedding')).default;
-    const PineconeClient = (await import('../clients/pinecone')).default;
+    // Use the pipeline's built-in RAG sync method
+    const syncResult = await instagramPipeline.forceSyncToRAG();
 
-    // Initialize services
-    const openaiClient = new OpenAIClient();
-    const pineconeClient = new PineconeClient();
-    const embeddingService = new EmbeddingService(openaiClient, pineconeClient);
-    const ragService = new RAGService(openaiClient, embeddingService, pineconeClient);
-
-    // Initialize the RAG service (crucial step!)
-    await ragService.initialize();
-
-    const instagramRAGIntegration = new InstagramRAGIntegration(instagramService, ragService, firebaseInstagramService);
-
-    const syncStatus = await instagramRAGIntegration.syncFirestoreDataToRAG();
-
-    res.json({
-      success: true,
-      data: syncStatus,
-      message: 'Firestore Instagram data sync completed',
-      timestamp: Date.now()
-    });
+    if (syncResult.success) {
+      res.json({
+        success: true,
+        data: {
+          postsCount: syncResult.postsCount,
+          status: syncResult.status,
+          lastSyncAt: new Date().toISOString()
+        },
+        message: 'Firestore Instagram data sync to RAG completed successfully',
+        timestamp: Date.now()
+      });
+    } else {
+      res.status(500).json({
+        success: false,
+        error: 'Failed to sync Firestore data to RAG',
+        details: syncResult.error,
+        timestamp: Date.now()
+      });
+    }
   } catch (error) {
     logger.error('Error syncing Firestore data to RAG:', error);
     res.status(500).json({
       success: false,
       error: 'Failed to sync Firestore data to RAG',
+      details: error instanceof Error ? error.message : 'Unknown error',
+      timestamp: Date.now()
+    });
+  }
+}));
+
+/**
+ * POST /api/instagram/rag/auto-sync
+ * Enable or disable automatic RAG sync
+ */
+router.post('/rag/auto-sync', [
+  query('enabled').isBoolean().toBoolean()
+], asyncHandler(async (req: Request, res: Response) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({
+      success: false,
+      error: 'Validation failed',
+      details: errors.array()
+    });
+  }
+
+  const enabled = Boolean(req.query.enabled);
+  
+  logger.info(`${enabled ? 'Enabling' : 'Disabling'} automatic RAG sync for Instagram data`);
+  
+  instagramPipeline.setAutoSyncRAG(enabled);
+
+  res.json({
+    success: true,
+    message: `Automatic RAG sync ${enabled ? 'enabled' : 'disabled'}`,
+    data: {
+      autoSyncEnabled: enabled,
+      timestamp: new Date().toISOString()
+    },
+    timestamp: Date.now()
+  });
+}));
+
+/**
+ * GET /api/instagram/rag/status
+ * Get RAG sync status and configuration
+ */
+router.get('/rag/status', asyncHandler(async (req: Request, res: Response) => {
+  logger.info('Getting Instagram RAG sync status');
+
+  const autoSyncEnabled = instagramPipeline.isAutoSyncRAGEnabled();
+
+  res.json({
+    success: true,
+    data: {
+      autoSyncEnabled,
+      lastChecked: new Date().toISOString()
+    },
+    timestamp: Date.now()
+  });
+}));
+
+/**
+ * POST /api/instagram/data-updated
+ * Call this endpoint when JSON data is updated to trigger RAG sync from Firestore
+ * This is the main endpoint to call when Instagram data is updated
+ */
+router.post('/data-updated', asyncHandler(async (req: Request, res: Response) => {
+  logger.info('Instagram data updated - triggering RAG sync from Firestore');
+
+  try {
+    // Check if auto-sync is enabled
+    const autoSyncEnabled = instagramPipeline.isAutoSyncRAGEnabled();
+    
+    if (!autoSyncEnabled) {
+      logger.info('Auto-sync is disabled, skipping RAG sync');
+      return res.json({
+        success: true,
+        message: 'Data update acknowledged, but auto-sync is disabled',
+        data: {
+          autoSyncEnabled: false,
+          ragSynced: false
+        },
+        timestamp: Date.now()
+      });
+    }
+
+    // Force sync from Firestore to RAG
+    const syncResult = await instagramPipeline.forceSyncToRAG();
+
+    if (syncResult.success) {
+      logger.info('Successfully synced updated Instagram data to RAG', {
+        postsCount: syncResult.postsCount,
+        status: syncResult.status
+      });
+
+      res.json({
+        success: true,
+        message: 'Instagram data updated and successfully synced to RAG',
+        data: {
+          autoSyncEnabled: true,
+          ragSynced: true,
+          postsCount: syncResult.postsCount,
+          status: syncResult.status,
+          lastSyncAt: new Date().toISOString()
+        },
+        timestamp: Date.now()
+      });
+    } else {
+      logger.error('Failed to sync updated Instagram data to RAG', {
+        error: syncResult.error
+      });
+
+      res.status(500).json({
+        success: false,
+        error: 'Failed to sync updated data to RAG',
+        details: syncResult.error,
+        timestamp: Date.now()
+      });
+    }
+  } catch (error) {
+    logger.error('Error handling Instagram data update:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to handle data update',
       details: error instanceof Error ? error.message : 'Unknown error',
       timestamp: Date.now()
     });
@@ -701,6 +818,162 @@ router.get('/json-status', asyncHandler(async (req: Request, res: Response) => {
     res.status(500).json({
       success: false,
       error: 'Failed to check JSON file status',
+      timestamp: Date.now()
+    });
+  }
+}));
+
+/**
+ * POST /api/instagram/migrate/thumbnail-urls
+ * Migration endpoint to update all existing Firestore posts with thumbnail URLs
+ * This fixes posts that were stored before thumbnail URL field was properly implemented
+ */
+router.post('/migrate/thumbnail-urls', [
+  query('limit').optional().isInt({ min: 1, max: 100 }).toInt(),
+  query('dryRun').optional().isBoolean().toBoolean()
+], asyncHandler(async (req: Request, res: Response) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({
+      success: false,
+      error: 'Validation failed',
+      details: errors.array()
+    });
+  }
+
+  const { limit = 50, dryRun = false } = req.query;
+  const startTime = Date.now();
+
+  logger.info('Starting thumbnail URL migration', { limit, dryRun });
+
+  if (!instagramConfig.accessToken) {
+    return res.status(400).json({
+      success: false,
+      error: 'Instagram access token not configured'
+    });
+  }
+
+  try {
+    // Step 1: Get all existing posts from Firestore
+    const existingPosts = await firebaseInstagramService.getAllPosts();
+    logger.info(`Found ${existingPosts.length} existing posts in Firestore`);
+
+    // Step 2: Filter posts that are missing thumbnail URLs
+    const postsNeedingThumbnails = existingPosts.filter(post => !post.thumbnailUrl || post.thumbnailUrl === '');
+    logger.info(`Found ${postsNeedingThumbnails.length} posts missing thumbnail URLs`);
+
+    if (postsNeedingThumbnails.length === 0) {
+      return res.json({
+        success: true,
+        message: 'All posts already have thumbnail URLs - no migration needed',
+        data: {
+          totalExisting: existingPosts.length,
+          needingUpdate: 0,
+          updated: 0
+        },
+        processingTime: Date.now() - startTime,
+        timestamp: Date.now()
+      });
+    }
+
+    // Step 3: Fetch fresh data from Instagram API (limited to prevent rate limits)
+    const fetchLimit = Math.min(limit as number, postsNeedingThumbnails.length);
+    logger.info(`Fetching ${fetchLimit} posts from Instagram API for thumbnail URLs`);
+    
+    const instagramResponse = await instagramService.getPosts(fetchLimit);
+    const freshPosts = instagramResponse.data;
+    
+    logger.info(`Fetched ${freshPosts.length} posts with thumbnail URLs from Instagram API`);
+
+    // Step 4: Map thumbnail URLs to posts that need them
+    let updatedCount = 0;
+    const updateResults: Array<{ postId: string; success: boolean; thumbnailUrl?: string; error?: string }> = [];
+
+    for (const postNeedingThumbnail of postsNeedingThumbnails.slice(0, fetchLimit)) {
+      const freshPost = freshPosts.find(fp => fp.id === postNeedingThumbnail.id);
+      
+      if (freshPost && freshPost.thumbnailUrl) {
+        const updateResult: { postId: string; success: boolean; thumbnailUrl?: string; error?: string } = {
+          postId: postNeedingThumbnail.id,
+          success: false,
+          thumbnailUrl: freshPost.thumbnailUrl
+        };
+
+        if (!dryRun) {
+          try {
+            await firebaseInstagramService.updatePostThumbnailUrl(postNeedingThumbnail.id, freshPost.thumbnailUrl);
+            updateResult.success = true;
+            updatedCount++;
+          } catch (error) {
+            updateResult.error = error instanceof Error ? error.message : 'Unknown error';
+          }
+        } else {
+          updateResult.success = true; // Dry run assumes success
+          updatedCount++;
+        }
+
+        updateResults.push(updateResult);
+      }
+    }
+
+    // Step 5: Regenerate JSON file with updated data if not dry run
+    let jsonRegenerated = false;
+    if (!dryRun && updatedCount > 0) {
+      try {
+        logger.info('Regenerating JSON file with updated thumbnail URLs');
+        
+        // Get fresh data with thumbnail URLs
+        const updatedFirestorePosts = await firebaseInstagramService.getAllPosts();
+        const accountInfo = await instagramService.getAccountInfo();
+        
+        const jsonData = {
+          account: accountInfo,
+          posts: updatedFirestorePosts,
+          metadata: {
+            totalPosts: updatedFirestorePosts.length,
+            lastSync: new Date().toISOString(),
+            syncedBy: 'thumbnail-migration',
+            source: 'firestore_with_thumbnails'
+          }
+        };
+
+        const jsonPath = path.join(process.cwd(), 'data', 'instagram-complete-data.json');
+        await fs.mkdir(path.dirname(jsonPath), { recursive: true });
+        await fs.writeFile(jsonPath, JSON.stringify(jsonData, null, 2), 'utf8');
+        
+        jsonRegenerated = true;
+        logger.info('JSON file regenerated with thumbnail URLs', { path: jsonPath });
+      } catch (error) {
+        logger.warn('Failed to regenerate JSON file:', error);
+      }
+    }
+
+    const processingTime = Date.now() - startTime;
+
+    res.json({
+      success: true,
+      message: dryRun ? 'Dry run completed - no changes made' : `Successfully updated ${updatedCount} posts with thumbnail URLs`,
+      data: {
+        totalExisting: existingPosts.length,
+        needingUpdate: postsNeedingThumbnails.length,
+        fetchedFromAPI: freshPosts.length,
+        updated: updatedCount,
+        failed: updateResults.filter(r => !r.success).length,
+        jsonRegenerated,
+        updateResults: updateResults.length <= 10 ? updateResults : updateResults.slice(0, 10).concat([{ postId: '...', success: true, thumbnailUrl: `and ${updateResults.length - 10} more` }])
+      },
+      dryRun,
+      processingTime,
+      timestamp: Date.now()
+    });
+
+  } catch (error) {
+    logger.error('Thumbnail URL migration failed:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Thumbnail URL migration failed',
+      details: error instanceof Error ? error.message : 'Unknown error',
+      processingTime: Date.now() - startTime,
       timestamp: Date.now()
     });
   }

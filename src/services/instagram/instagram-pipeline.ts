@@ -16,9 +16,11 @@ export interface InstagramPipelineResult {
     totalFetched: number;
     totalStored: number;
     ragSynced: boolean;
+    ragStatus?: string;
     lastSync: string;
     cacheUsed: boolean;
     cacheReason?: string;
+    autoSyncEnabled?: boolean;
   };
   error?: string;
   processingTime: number;
@@ -32,6 +34,7 @@ export class InstagramPipeline {
   private db: FirebaseFirestore.Firestore;
   private readonly COLLECTION_NAME = 'instagram_business';
   private isInitialized = false;
+  private autoSyncRAG = true; // Enable automatic RAG sync by default
 
   /**
    * Validate and clean post data before saving
@@ -197,6 +200,7 @@ export class InstagramPipeline {
       let posts: InstagramPost[];
       let totalStored = 0;
       let ragSynced = false;
+      let ragStatus = 'not_attempted';
       let cacheUsed = false;
       let cacheReason = cacheCheck.reason;
 
@@ -233,18 +237,27 @@ export class InstagramPipeline {
         
         logger.info('Cache updated successfully');
 
-        // Step 3d: Sync to RAG system (if available and cache was refreshed)
-        if (this.ragIntegration) {
+        // Step 3d: Sync to RAG system (enhanced with better error handling and status)
+        if (this.ragIntegration && this.autoSyncRAG) {
           try {
-            logger.info('Step 3d: Syncing to RAG system');
-            await this.ragIntegration.syncFirestoreDataToRAG();
+            logger.info('Step 3d: Syncing to RAG system (auto-sync enabled)');
+            const ragSyncResult = await this.ragIntegration.syncFirestoreDataToRAG();
             ragSynced = true;
-            logger.info('Successfully synced to RAG system');
+            ragStatus = ragSyncResult.status;
+            logger.info('Successfully synced to RAG system', {
+              postsCount: ragSyncResult.postsCount,
+              status: ragSyncResult.status
+            });
           } catch (error) {
             logger.warn('RAG sync failed, continuing without it:', error);
+            ragStatus = 'error';
           }
-        } else {
+        } else if (!this.ragIntegration) {
           logger.info('RAG integration not available, skipping sync');
+          ragStatus = 'not_available';
+        } else {
+          logger.info('Automatic RAG sync disabled, skipping sync');
+          ragStatus = 'disabled';
         }
 
         cacheUsed = false;
@@ -259,9 +272,11 @@ export class InstagramPipeline {
           totalFetched: posts.length,
           totalStored,
           ragSynced,
+          ragStatus,
           lastSync: new Date().toISOString(),
           cacheUsed,
-          cacheReason
+          cacheReason,
+          autoSyncEnabled: this.autoSyncRAG
         },
         processingTime: Date.now() - startTime
       };
@@ -300,6 +315,8 @@ export class InstagramPipeline {
   /**
    * Store Instagram posts in Firestore using proper Firebase service
    * Only stores new posts to avoid excess write operations
+   * Updates existing posts that are missing thumbnail URLs
+   * Automatically syncs to RAG after Firestore updates
    */
   private async storePostsInFirestore(posts: InstagramPost[]): Promise<number> {
     try {
@@ -321,6 +338,8 @@ export class InstagramPipeline {
       });
       
       let storedCount = 0;
+      let updatedCount = 0;
+      let firestoreUpdated = false;
       
       // Only save new posts to avoid excess write operations
       if (newPosts.length > 0) {
@@ -328,6 +347,7 @@ export class InstagramPipeline {
         const cleanedPosts = newPosts.map(post => this.validateAndCleanPost(post));
         await this.firebaseService.savePosts(cleanedPosts);
         storedCount = cleanedPosts.length;
+        firestoreUpdated = true;
         
         logger.info('Successfully stored new Instagram posts to Firestore', { 
           newPostsStored: storedCount
@@ -335,18 +355,62 @@ export class InstagramPipeline {
       } else {
         logger.info('No new Instagram posts to store - all posts already exist in Firestore');
       }
+
+      // Check and update existing posts that might be missing thumbnail URLs
+      if (existingPosts.length > 0) {
+        logger.info('Checking existing posts for missing thumbnail URLs', { existingPostsCount: existingPosts.length });
+        
+        const postsNeedingUpdate = await this.firebaseService.getPostsMissingThumbnailUrls(postIds);
+        
+        if (postsNeedingUpdate.length > 0) {
+          logger.info('Found existing posts missing thumbnail URLs', { postsNeedingUpdate: postsNeedingUpdate.length });
+          
+          // Update existing posts with thumbnail URLs from fresh Instagram data
+          for (const existingPostId of postsNeedingUpdate) {
+            const freshPost = posts.find(p => p.id === existingPostId);
+            if (freshPost && freshPost.thumbnailUrl) {
+              try {
+                await this.firebaseService.updatePostThumbnailUrl(existingPostId, freshPost.thumbnailUrl);
+                updatedCount++;
+                logger.debug('Updated post with thumbnail URL', { postId: existingPostId, thumbnailUrl: freshPost.thumbnailUrl });
+              } catch (error) {
+                logger.warn('Failed to update post thumbnail URL', { postId: existingPostId, error: error instanceof Error ? error.message : 'Unknown error' });
+              }
+            }
+          }
+          
+          if (updatedCount > 0) {
+            firestoreUpdated = true;
+            logger.info('Successfully updated existing posts with thumbnail URLs', { updatedCount });
+          }
+        }
+      }
       
       // Update analytics summary with all posts (new + existing) for the Kotlin app compatibility
       if (posts.length > 0) {
         const analytics = await this.generateAnalyticsFromPosts(posts);
         await this.firebaseService.saveAnalyticsSummary(analytics);
+        firestoreUpdated = true;
         
         logger.info('Updated analytics summary with all posts', {
           totalPostsInAnalytics: posts.length
         });
       }
+
+      // Auto-sync to RAG if Firestore was updated and auto-sync is enabled
+      if (firestoreUpdated && this.autoSyncRAG) {
+        await this.syncToRAGAfterFirestoreUpdate(updatedCount > 0 ? 'posts_and_thumbnails_updated' : 'posts_stored');
+      }
       
-      return storedCount;
+      // Return total number of posts affected (new posts + updated posts)
+      const totalAffected = storedCount + updatedCount;
+      logger.info('Firestore operation completed', { 
+        newPostsStored: storedCount, 
+        existingPostsUpdated: updatedCount,
+        totalAffected 
+      });
+      
+      return totalAffected;
     } catch (error) {
       logger.error('Failed to store Instagram posts with metrics to Firestore:', error);
       throw error;
@@ -977,6 +1041,11 @@ export class InstagramPipeline {
       if (totalSynced > 0) {
         const analytics = await this.generateAnalyticsFromPosts(freshPosts);
         await this.firebaseService.saveAnalyticsSummary(analytics);
+        
+        // Auto-sync to RAG after metrics update
+        if (this.autoSyncRAG) {
+          await this.syncToRAGAfterFirestoreUpdate('metrics_sync');
+        }
       }
 
       logger.info('Completed metrics sync from Instagram API to Firestore', {
@@ -1028,8 +1097,6 @@ export class InstagramPipeline {
       throw error;
     }
   }
-
-
 
   /**
    * Get cache statistics
@@ -1110,6 +1177,139 @@ export class InstagramPipeline {
     health.overall = health.instagram && health.firestore && health.cache;
 
     return health;
+  }
+
+  /**
+   * Enable or disable automatic RAG sync
+   */
+  setAutoSyncRAG(enabled: boolean): void {
+    this.autoSyncRAG = enabled;
+    logger.info(`Automatic RAG sync ${enabled ? 'enabled' : 'disabled'}`);
+  }
+
+  /**
+   * Check if automatic RAG sync is enabled
+   */
+  isAutoSyncRAGEnabled(): boolean {
+    return this.autoSyncRAG;
+  }
+
+  /**
+   * Sync to RAG after Firestore update with proper error handling
+   */
+  private async syncToRAGAfterFirestoreUpdate(reason: string): Promise<void> {
+    try {
+      if (!this.ragIntegration) {
+        logger.info(`RAG integration not available for sync after ${reason}`);
+        return;
+      }
+
+      logger.info(`Auto-syncing to RAG after Firestore update: ${reason}`);
+      const ragSyncResult = await this.ragIntegration.syncFirestoreDataToRAG();
+      
+      logger.info('Successfully auto-synced to RAG after Firestore update', {
+        reason,
+        postsCount: ragSyncResult.postsCount,
+        status: ragSyncResult.status
+      });
+    } catch (error) {
+      logger.warn(`RAG auto-sync failed after ${reason}:`, error);
+      // Don't throw error - just log warning as this is automatic sync
+    }
+  }
+
+  /**
+   * Force sync Instagram data to RAG system
+   */
+  async forceSyncToRAG(): Promise<{
+    success: boolean;
+    postsCount: number;
+    status: string;
+    error?: string;
+  }> {
+    try {
+      logger.info('Force syncing Instagram data to RAG system');
+      
+      if (!this.ragIntegration) {
+        await this.initializeRAG();
+        if (!this.ragIntegration) {
+          throw new Error('RAG integration not available');
+        }
+      }
+
+      const ragSyncResult = await this.ragIntegration.syncFirestoreDataToRAG();
+      
+      logger.info('Force sync to RAG completed successfully', {
+        postsCount: ragSyncResult.postsCount,
+        status: ragSyncResult.status
+      });
+
+      return {
+        success: true,
+        postsCount: ragSyncResult.postsCount,
+        status: ragSyncResult.status
+      };
+    } catch (error) {
+      logger.error('Force sync to RAG failed:', error);
+      return {
+        success: false,
+        postsCount: 0,
+        status: 'error',
+        error: error instanceof Error ? error.message : 'Unknown error'
+      };
+    }
+  }
+
+  /**
+   * Check if RAG sync is needed (simple heuristic based on time)
+   */
+  private async shouldSyncToRAG(): Promise<boolean> {
+    try {
+      // Check if RAG was synced recently (within last hour)
+      // This is a simple heuristic - you could make it more sophisticated
+      if (this.ragIntegration) {
+        const syncStatus = await this.ragIntegration.getSyncStatus();
+        const lastSyncTime = new Date(syncStatus.lastSyncAt);
+        const hourAgo = new Date(Date.now() - 60 * 60 * 1000);
+        return lastSyncTime < hourAgo;
+      }
+      return true;
+    } catch (error) {
+      logger.warn('Could not determine RAG sync status, assuming sync needed:', error);
+      return true;
+    }
+  }
+
+  /**
+   * Process Instagram data with explicit RAG sync control
+   */
+  async processInstagramDataWithRAGControl(
+    limit: number = 25, 
+    forceRAGSync: boolean = false
+  ): Promise<InstagramPipelineResult> {
+    const originalAutoSync = this.autoSyncRAG;
+    
+    try {
+      // Temporarily set auto sync based on force parameter
+      if (forceRAGSync) {
+        this.setAutoSyncRAG(true);
+      }
+      
+      const result = await this.processInstagramData(limit);
+      
+      // If force sync was requested but normal processing didn't sync, force it
+      if (forceRAGSync && !result.data.ragSynced) {
+        logger.info('Force RAG sync requested but not completed in normal processing, forcing now');
+        const forceSyncResult = await this.forceSyncToRAG();
+        result.data.ragSynced = forceSyncResult.success;
+        result.data.ragStatus = forceSyncResult.status;
+      }
+      
+      return result;
+    } finally {
+      // Restore original auto sync setting
+      this.setAutoSyncRAG(originalAutoSync);
+    }
   }
 }
 
