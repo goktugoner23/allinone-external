@@ -461,5 +461,67 @@ router.get('/health', (req: Request, res: Response) => {
   });
 });
 
+/**
+ * Test the enhanced Instagram RAG analysis
+ * POST /api/rag/test-instagram
+ */
+router.post('/test-instagram', 
+  ensureRAGServiceInitialized,
+  async (req: Request, res: Response) => {
+  try {
+    logger.info('Testing enhanced Instagram RAG analysis');
+
+    const testQueries = [
+      "What are my best performing posts?",
+      "Show me my top engagement content",
+      "Which posts have the highest engagement rates?",
+      "What content performs best with my audience?"
+    ];
+
+    const results = [];
+
+    for (const query of testQueries) {
+      logger.info(`Testing query: ${query}`);
+      
+      const startTime = Date.now();
+      const response = await ragService.query(query, 'instagram');
+      const processingTime = Date.now() - startTime;
+
+      results.push({
+        query,
+        answer: response.answer.substring(0, 300) + '...', // Truncate for overview
+        sourcesCount: response.sources.length,
+        confidence: response.confidence,
+        processingTime: processingTime,
+        metadata: {
+          totalMatches: response.metadata.totalMatches,
+          processedQuery: response.metadata.processedQuery?.query
+        }
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Enhanced Instagram RAG analysis test completed',
+      results,
+      improvements: [
+        'Instagram-specific query enhancement with OpenAI',
+        'Better search terms for vector similarity matching',
+        'Instagram analytics prompts for concrete insights',
+        'Engagement rate calculations and performance analysis',
+        'Specific post references with actual metrics'
+      ]
+    });
+
+  } catch (error) {
+    logger.error('Error testing enhanced Instagram RAG:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to test enhanced Instagram RAG',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
 export default router;
 export { initializeRAGService, addDocumentsToRAG }; 

@@ -230,45 +230,144 @@ export class OpenAIClient {
   }
 
   /**
+   * Enhance Instagram queries for better vector search
+   */
+  async enhanceInstagramQuery(originalQuery: string): Promise<string> {
+    if (!this.isReady()) {
+      throw new Error('OpenAI client not initialized');
+    }
+
+    try {
+      logger.debug('Enhancing Instagram query for vector search', {
+        originalQuery
+      });
+
+      const systemPrompt = `You are an Instagram content search optimizer. Your job is to transform user questions into search queries that will find relevant Instagram posts in a vector database.
+
+Instagram Content Enhancement Rules:
+- "best posts" → "high engagement posts likes comments performance viral top content"
+- "recent content" → "latest posts new content recent uploads"
+- "video posts" → "video content reels IGTV motion video posts"
+- "photos" → "image posts photo content static posts pictures"
+- "engagement" → "likes comments shares saves engagement interaction audience"
+- "performance" → "metrics analytics engagement rate reach impressions"
+- "popular content" → "trending viral high engagement popular trending"
+- "content strategy" → "content themes topics hashtags strategy patterns"
+
+Transform the user's question into an expanded search query that includes:
+1. Core intent keywords
+2. Instagram-specific terminology (likes, comments, engagement, reach, impressions)
+3. Content type indicators (post, video, photo, reel, carousel)
+4. Performance metrics terms when relevant
+5. Synonyms and related terms for better matching
+
+Return ONLY the enhanced search query string, nothing else.`;
+
+      const response = await this.client.chat.completions.create({
+        model: config.rag.completion.model,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: `Original query: "${originalQuery}"` }
+        ],
+        temperature: 0.1, // Low temperature for consistent enhancement
+        max_tokens: 150
+      });
+
+      const enhancedQuery = response.choices[0]?.message?.content?.trim();
+      if (!enhancedQuery) {
+        logger.warn('Failed to enhance Instagram query, using original');
+        return originalQuery;
+      }
+
+      logger.debug('Successfully enhanced Instagram query', {
+        originalQuery,
+        enhancedQuery
+      });
+
+      return enhancedQuery;
+    } catch (error) {
+      logger.error('Error enhancing Instagram query:', {
+        error,
+        originalQuery
+      });
+      return originalQuery; // Fallback to original query
+    }
+  }
+
+  /**
    * Build system prompt for query processing (Stage 1)
    */
   private buildQueryProcessingPrompt(availableDomains: string[]): string {
-    return `You are a query processing assistant. Your job is to analyze user queries and extract:
-1. A semantic search query (optimized for vector similarity search)
-2. Metadata filters to narrow down results
+    return `You are an Instagram data analysis query processor. Your job is to analyze user queries about their Instagram content and extract:
+1. A semantic search query optimized for finding relevant Instagram posts
+2. Metadata filters to find specific content types or time periods
 3. A confidence score for the processing
 
 Available domains: ${availableDomains.join(', ')}
 
-Rules:
-- Extract the core semantic meaning for vector search
-- Identify the most relevant domain (or 'general' if unclear)
-- Extract relevant tags, content types, date ranges if mentioned
-- Provide confidence score (0-1) based on query clarity
+Instagram Query Enhancement Rules:
+- For "best performing posts" → search for "high engagement posts likes comments performance"
+- For "recent posts" → add date filters for last 30 days
+- For "video content" → filter by contentType: "video" 
+- For "engagement analysis" → search for "engagement rate likes comments metrics"
+- For "content strategy" → search for "content performance topics hashtags"
+- For "audience insights" → search for "audience engagement interaction patterns"
+
+Extract semantic meaning for Instagram content:
+- Convert performance questions to engagement metrics searches
+- Add relevant Instagram terminology (likes, comments, shares, reach, impressions)
+- Focus on quantifiable metrics when asking about "best" or "top" content
+- Include content type filters (posts, videos, carousels, reels)
 
 Return JSON in this exact format:
 {
-  "semanticQuery": "optimized search query for embeddings",
+  "semanticQuery": "enhanced Instagram-focused search query with metrics terms",
   "filters": {
-    "domain": "domain_name",
-    "tags": ["tag1", "tag2"],
-    "contentType": "post|article|text|summary|note",
+    "domain": "instagram",
+    "tags": ["engagement", "performance", "metrics"],
+    "contentType": "post|video|carousel|reel",
     "dateRange": {
       "start": "YYYY-MM-DD",
       "end": "YYYY-MM-DD"
     }
   },
   "confidence": 0.95,
-  "reasoning": "explanation of processing decisions"
+  "reasoning": "explanation of Instagram-specific query enhancement"
 }
 
-Only include filters that are clearly indicated in the query. Omit optional fields if not relevant.`;
+Only include filters that are clearly indicated in the query. Default domain to "instagram" for Instagram-related questions.`;
   }
 
   /**
    * Build system prompt for response generation (Stage 3)
    */
   private buildResponseGenerationPrompt(domain?: string): string {
+    if (domain === 'instagram') {
+      return `You are an expert Instagram analytics consultant with deep knowledge of social media metrics and engagement optimization.
+
+Your role is to analyze the user's Instagram data and provide specific, actionable insights based on their actual posts and performance metrics.
+
+Analysis Guidelines:
+- Calculate engagement rates using the formula: (likes + comments) / impressions * 100
+- Identify top-performing content by engagement rate, not just like count
+- Analyze content themes, posting patterns, and audience engagement
+- Provide specific recommendations based on actual performance data
+- Compare metrics between different post types (videos, images, carousels)
+- Highlight content that significantly outperformed or underperformed
+- Include specific numbers, dates, and metrics in your analysis
+
+Response Structure:
+1. Direct answer to the user's question with specific data
+2. Key performance insights with actual metrics
+3. Content themes and patterns observed
+4. Actionable recommendations based on the data
+5. Specific examples from their highest/lowest performing posts
+
+Always reference specific posts by their content preview, engagement metrics, and timestamps. Avoid generic social media advice - focus on analyzing their actual data.
+
+Format responses in a conversational, expert tone while being precise with numbers and insights.`;
+    }
+    
     const domainContext = domain ? `Focus on ${domain}-related information.` : '';
     
     return `You are an AI assistant specializing in providing comprehensive answers based on retrieved context.
@@ -294,6 +393,42 @@ Format your response naturally, without explicitly mentioning "based on the prov
     originalQuery: string,
     retrievedDocs: Array<{ content: string; metadata: any; score: number }>
   ): string {
+    // Check if this is Instagram data
+    const hasInstagramData = retrievedDocs.some(doc => 
+      doc.metadata.domain === 'instagram' || 
+      doc.content.includes('likes') || 
+      doc.content.includes('comments') ||
+      doc.content.includes('engagement')
+    );
+
+    if (hasInstagramData) {
+      const contextSections = retrievedDocs
+        .map((doc, index) => {
+          const metadata = doc.metadata;
+          const source = metadata.title || metadata.postId || `Post ${index + 1}`;
+          const relevance = (doc.score * 100).toFixed(1);
+          
+          // Extract Instagram metrics from content if available
+          const content = doc.content;
+          let metricsInfo = '';
+          if (content.includes('likes:') || content.includes('comments:')) {
+            metricsInfo = ` | Engagement Data Available`;
+          }
+          
+          return `[Instagram Post: ${source} | Relevance: ${relevance}%${metricsInfo}]
+${content}`;
+        })
+        .join('\n\n---\n\n');
+
+      return `User Question: ${originalQuery}
+
+Instagram Data Context:
+${contextSections}
+
+Please analyze the above Instagram posts and provide specific insights about the user's content performance. Calculate engagement rates, identify patterns, and give concrete recommendations based on the actual metrics and content shown above.`;
+    }
+
+    // Default format for non-Instagram content
     const contextSections = retrievedDocs
       .map((doc, index) => {
         const source = doc.metadata.title || doc.metadata.source || `Document ${index + 1}`;

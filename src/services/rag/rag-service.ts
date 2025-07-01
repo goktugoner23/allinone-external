@@ -158,9 +158,23 @@ export class RAGService {
         topK: semanticQuery.topK
       });
 
-      // Create embedding for the semantic query
+      // Enhanced query for Instagram content
+      let searchQuery = semanticQuery.query;
+      if (semanticQuery.filters.domain === 'instagram') {
+        try {
+          searchQuery = await this.openaiClient.enhanceInstagramQuery(semanticQuery.query);
+          logger.debug('Enhanced Instagram search query', {
+            originalQuery: semanticQuery.query,
+            enhancedQuery: searchQuery
+          });
+        } catch (error) {
+          logger.warn('Failed to enhance Instagram query, using original', { error });
+        }
+      }
+
+      // Create embedding for the enhanced semantic query
       const queryEmbedding = await this.embeddingService.embedQuery(
-        semanticQuery.query,
+        searchQuery,
         semanticQuery.filters.domain
       );
 
@@ -191,7 +205,8 @@ export class RAGService {
         totalMatches: queryResponse.matches.length,
         filteredMatches: filteredMatches.length,
         namespace,
-        topScore: filteredMatches.length > 0 ? filteredMatches[0].score : 0
+        topScore: filteredMatches.length > 0 ? filteredMatches[0].score : 0,
+        enhancedQuery: searchQuery !== semanticQuery.query
       });
 
       return filteredMatches;
@@ -205,7 +220,7 @@ export class RAGService {
   }
 
   /**
-   * Stage 3: Generate final response using retrieved context
+   * Stage 3: Generate final response using context
    */
   private async generateResponse(
     originalQuery: string,
@@ -213,18 +228,24 @@ export class RAGService {
     retrievedDocs: VectorMatch[]
   ): Promise<string> {
     try {
-      logger.debug('Generating response (Stage 3)', {
-        originalQuery: originalQuery.substring(0, 100),
-        retrievedDocsCount: retrievedDocs.length,
-        domain: semanticQuery.filters.domain
+      logger.debug('Generating final response (Stage 3)', {
+        originalQuery,
+        semanticQuery: semanticQuery.query,
+        docsCount: retrievedDocs.length
       });
 
       if (retrievedDocs.length === 0) {
         return this.generateNoResultsResponse(originalQuery, semanticQuery);
       }
 
-      // Prepare context from retrieved documents
+      // Prepare context for response generation
       const context = this.prepareContext(retrievedDocs);
+      
+      // Enhanced Instagram analytics if this is Instagram domain
+      if (semanticQuery.filters.domain === 'instagram') {
+        const instagramAnalytics = this.calculateInstagramAnalytics(retrievedDocs);
+        logger.debug('Calculated Instagram analytics', instagramAnalytics);
+      }
 
       // Generate response using OpenAI
       const response = await this.openaiClient.generateResponse(
@@ -233,9 +254,9 @@ export class RAGService {
         context
       );
 
-      logger.debug('Response generation completed', {
+      logger.debug('Final response generated', {
         responseLength: response.length,
-        contextDocs: retrievedDocs.length
+        contextDocsUsed: context.length
       });
 
       return response;
@@ -243,10 +264,79 @@ export class RAGService {
       logger.error('Error in response generation stage:', {
         error,
         originalQuery: originalQuery.substring(0, 100),
-        retrievedDocsCount: retrievedDocs.length
+        docsCount: retrievedDocs.length
       });
       throw error;
     }
+  }
+
+  /**
+   * Calculate Instagram-specific analytics from retrieved posts
+   */
+  private calculateInstagramAnalytics(retrievedDocs: VectorMatch[]): {
+    totalPosts: number;
+    avgEngagementRate: number;
+    topPost: any;
+    totalLikes: number;
+    totalComments: number;
+    contentTypes: Record<string, number>;
+  } {
+    let totalLikes = 0;
+    let totalComments = 0;
+    let totalImpressions = 0;
+    let topEngagementRate = 0;
+    let topPost: any = null;
+    const contentTypes: Record<string, number> = {};
+
+    retrievedDocs.forEach(doc => {
+      const content = doc.content;
+      const metadata = doc.metadata;
+
+      // Extract metrics from content
+      const likesMatch = content.match(/likes:\s*(\d+)/i);
+      const commentsMatch = content.match(/comments:\s*(\d+)/i);
+      const impressionsMatch = content.match(/impressions:\s*(\d+)/i) || 
+                               content.match(/reach:\s*(\d+)/i);
+
+      const likes = likesMatch ? parseInt(likesMatch[1]) : 0;
+      const comments = commentsMatch ? parseInt(commentsMatch[1]) : 0;
+      const impressions = impressionsMatch ? parseInt(impressionsMatch[1]) : 1; // Avoid division by zero
+
+      totalLikes += likes;
+      totalComments += comments;
+      totalImpressions += impressions;
+
+      // Calculate engagement rate for this post
+      const engagementRate = impressions > 0 ? ((likes + comments) / impressions) * 100 : 0;
+      
+      if (engagementRate > topEngagementRate) {
+        topEngagementRate = engagementRate;
+        topPost = {
+          content: content.substring(0, 200) + '...',
+          likes,
+          comments,
+          impressions,
+          engagementRate: engagementRate.toFixed(2),
+          metadata
+        };
+      }
+
+      // Track content types
+      const contentType = metadata.contentType || 'post';
+      contentTypes[contentType] = (contentTypes[contentType] || 0) + 1;
+    });
+
+    const avgEngagementRate = totalImpressions > 0 ? 
+      ((totalLikes + totalComments) / totalImpressions) * 100 : 0;
+
+    return {
+      totalPosts: retrievedDocs.length,
+      avgEngagementRate: parseFloat(avgEngagementRate.toFixed(2)),
+      topPost,
+      totalLikes,
+      totalComments,
+      contentTypes
+    };
   }
 
   /**
