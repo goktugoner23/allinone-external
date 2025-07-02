@@ -48,6 +48,7 @@ The Instagram integration system provides:
 ### 🔍 Data Retrieval
 - **Account Information**: Username, follower count, media count, account type
 - **Posts & Media**: Images, videos, carousels with full metadata
+- **⚡ No Artificial Limits**: Fetch ALL available posts (no more 25/50 post limits!)
 - **Engagement Metrics**: Likes, comments, saves, shares, reach, impressions
 - **Performance Analytics**: Engagement rates, virality scores, reach efficiency
 
@@ -199,7 +200,8 @@ GET /api/instagram/account
 
 ### Posts with Metrics
 ```http
-GET /api/instagram/posts?limit=25&after=cursor
+GET /api/instagram/posts                    # Fetches ALL available posts (no limits!)
+GET /api/instagram/posts?limit=25&after=cursor  # Optional limit for testing only
 ```
 
 **Response:**
@@ -239,7 +241,8 @@ GET /api/instagram/posts?limit=25&after=cursor
 
 ### Comprehensive Analytics
 ```http
-GET /api/instagram/analytics?postsLimit=50
+GET /api/instagram/analytics                # Analyzes ALL available posts (no limits!)
+GET /api/instagram/analytics?postsLimit=50  # Optional limit for testing only
 ```
 
 **Response:**
@@ -351,8 +354,8 @@ Add Instagram methods to your repository:
 ```kotlin
 // Instagram API methods
 suspend fun getInstagramAccount(): ApiResponse<InstagramAccount>
-suspend fun getInstagramPosts(limit: Int = 25, after: String? = null): ApiResponse<InstagramPostsResponse>
-suspend fun getInstagramAnalytics(postsLimit: Int = 50): ApiResponse<InstagramAnalytics>
+suspend fun getInstagramPosts(limit: Int = 1000, after: String? = null): ApiResponse<InstagramPostsResponse>  // No artificial limits!
+suspend fun getInstagramAnalytics(postsLimit: Int = 1000): ApiResponse<InstagramAnalytics>  // No artificial limits!
 suspend fun checkInstagramHealth(): ApiResponse<HealthResponse>
 ```
 
@@ -422,7 +425,7 @@ class InstagramFragment : Fragment() {
                 }
                 
                 // Load recent posts
-                val postsResponse = repository.getInstagramPosts(limit = 10)
+                val postsResponse = repository.getInstagramPosts()  // Fetches ALL posts (no limits!)
                 if (postsResponse.success) {
                     displayPosts(postsResponse.data.posts)
                 }

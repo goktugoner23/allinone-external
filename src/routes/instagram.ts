@@ -33,7 +33,7 @@ const instagramPipeline = new InstagramPipeline(instagramConfig);
  * Main endpoint for Kotlin app - Fetch from Instagram API, store in Firestore, sync to RAG
  */
 router.post('/sync', [
-  query('limit').optional().isInt({ min: 1, max: 100 }).toInt()
+  query('limit').optional().isInt({ min: 1, max: 1000 }).toInt()
 ], asyncHandler(async (req: Request, res: Response) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
@@ -44,9 +44,10 @@ router.post('/sync', [
     });
   }
 
-  const { limit = 25 } = req.query;
+  // No artificial limit - use high number to get all available posts
+  const { limit = 1000 } = req.query;
 
-  logger.info('Starting Instagram data sync pipeline', { limit });
+  logger.info('Starting Instagram data sync pipeline', { limit, unlimited: limit === 1000 });
 
   if (!instagramConfig.accessToken) {
     return res.status(400).json({
@@ -175,7 +176,7 @@ router.get('/account', asyncHandler(async (req: Request, res: Response) => {
  * Get Instagram posts with pagination
  */
 router.get('/posts', [
-  query('limit').optional().isInt({ min: 1, max: 100 }).toInt(),
+  query('limit').optional().isInt({ min: 1, max: 1000 }).toInt(),
   query('after').optional().isString()
 ], asyncHandler(async (req: Request, res: Response) => {
   const errors = validationResult(req);
@@ -187,7 +188,8 @@ router.get('/posts', [
     });
   }
 
-  const { limit = 25, after } = req.query;
+  // No artificial limit - get all available posts
+  const { limit = 1000, after } = req.query;
 
   logger.info('Fetching Instagram posts', { limit, after });
 
@@ -447,7 +449,7 @@ router.post('/metrics/update', [
  * Sync fresh metrics from Instagram API to Firestore (like Kotlin app)
  */
 router.post('/metrics/sync', [
-  query('limit').optional().isInt({ min: 1, max: 100 }).toInt()
+  query('limit').optional().isInt({ min: 1, max: 1000 }).toInt()
 ], asyncHandler(async (req: Request, res: Response) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
@@ -458,7 +460,8 @@ router.post('/metrics/sync', [
     });
   }
 
-  const { limit = 50 } = req.query;
+  // No artificial limit - sync all available posts
+  const { limit = 1000 } = req.query;
 
   logger.info('Starting metrics sync from Instagram API to Firestore', { limit });
 
@@ -647,7 +650,7 @@ router.post('/data-updated', asyncHandler(async (req: Request, res: Response) =>
  * This is what the Kotlin app should call
  */
 router.post('/sync-complete', [
-  query('limit').optional().isInt({ min: 1, max: 100 }).toInt()
+  query('limit').optional().isInt({ min: 1, max: 1000 }).toInt()
 ], asyncHandler(async (req: Request, res: Response) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
@@ -658,7 +661,8 @@ router.post('/sync-complete', [
     });
   }
 
-  const { limit = 50 } = req.query;
+  // No artificial limit - get all available posts
+  const { limit = 1000 } = req.query;
   const startTime = Date.now();
 
   logger.info('Starting complete Instagram sync pipeline', { limit });
@@ -829,7 +833,7 @@ router.get('/json-status', asyncHandler(async (req: Request, res: Response) => {
  * This fixes posts that were stored before thumbnail URL field was properly implemented
  */
 router.post('/migrate/thumbnail-urls', [
-  query('limit').optional().isInt({ min: 1, max: 100 }).toInt(),
+  query('limit').optional().isInt({ min: 1, max: 1000 }).toInt(),
   query('dryRun').optional().isBoolean().toBoolean()
 ], asyncHandler(async (req: Request, res: Response) => {
   const errors = validationResult(req);
@@ -841,7 +845,8 @@ router.post('/migrate/thumbnail-urls', [
     });
   }
 
-  const { limit = 50, dryRun = false } = req.query;
+  // No artificial limit - process all posts needing thumbnails
+  const { limit = 1000, dryRun = false } = req.query;
   const startTime = Date.now();
 
   logger.info('Starting thumbnail URL migration', { limit, dryRun });

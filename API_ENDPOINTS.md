@@ -1172,6 +1172,306 @@ curl -X DELETE http://localhost:3000/api/binance/spot/orders/BTCUSDT/12345
 curl -X POST http://localhost:3000/api/binance/spot/subscribe/ticker/BTCUSDT
 ```
 
+# RAG (Retrieval-Augmented Generation) API
+
+Base path: `/api/rag`
+
+The RAG API provides intelligent document storage, retrieval, and question-answering capabilities. It combines vector similarity search with OpenAI for enhanced responses across different domains (Instagram, fitness, trading, general).
+
+## Core Query Endpoints
+
+### POST /api/rag/query
+
+**Main RAG query endpoint** - Ask questions and get AI-powered answers based on your stored documents.
+
+**Request Body:**
+```json
+{
+  "query": "What are my best performing posts?",
+  "domain": "instagram",
+  "options": {
+    "topK": 5,
+    "minScore": 0.7
+  }
+}
+```
+
+**Parameters:**
+- `query` (required): Question or query string (1-2000 characters)
+- `domain` (optional): One of `instagram`, `fitness`, `trading`, `general`
+- `options.topK` (optional): Number of similar documents to retrieve (1-20, default: 5)
+- `options.minScore` (optional): Minimum similarity score (0-1, default: 0.7)
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "answer": "Based on your Instagram data, your best performing posts are...",
+    "sources": [
+      {
+        "documentId": "instagram-post-123",
+        "content": "Post content excerpt...",
+        "metadata": {
+          "domain": "instagram",
+          "postId": "123",
+          "engagementRate": 8.5
+        },
+        "similarity": 0.92
+      }
+    ],
+    "confidence": 0.85,
+    "metadata": {
+      "totalMatches": 15,
+      "processedQuery": {
+        "query": "high engagement posts Instagram metrics",
+        "searchTerms": ["engagement", "performance", "likes", "comments"]
+      },
+      "processingTime": 1234
+    }
+  },
+  "timestamp": "2024-01-01T00:00:00.000Z"
+}
+```
+
+### GET /api/rag/status
+
+Get RAG system status and statistics.
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "isInitialized": true,
+    "documentCount": 150,
+    "namespaces": {
+      "instagram": 75,
+      "fitness": 25,
+      "trading": 30,
+      "general": 20
+    },
+    "lastUpdated": "2024-01-01T00:00:00.000Z",
+    "vectorDimensions": 1536,
+    "embeddingModel": "text-embedding-ada-002"
+  },
+  "timestamp": "2024-01-01T00:00:00.000Z"
+}
+```
+
+## Document Management Endpoints
+
+### POST /api/rag/documents
+
+Add a single document to the RAG system.
+
+**Request Body:**
+```json
+{
+  "id": "unique-document-id",
+  "content": "Document content to be embedded and stored...",
+  "metadata": {
+    "domain": "instagram",
+    "source": "api",
+    "title": "Document Title",
+    "tags": ["tag1", "tag2"],
+    "contentType": "post"
+  }
+}
+```
+
+**Parameters:**
+- `id` (required): Unique document identifier (1-255 characters)
+- `content` (required): Document content (1-50000 characters)
+- `metadata.domain` (required): One of `instagram`, `fitness`, `trading`, `general`
+- `metadata.source` (required): Source identifier
+- `metadata.contentType` (required): One of `text`, `post`, `article`, `summary`, `note`
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "documentId": "unique-document-id",
+    "status": "added"
+  },
+  "timestamp": "2024-01-01T00:00:00.000Z"
+}
+```
+
+### POST /api/rag/documents/batch
+
+Add multiple documents to the RAG system (1-50 documents per request).
+
+**Request Body:**
+```json
+{
+  "documents": [
+    {
+      "id": "doc-1",
+      "content": "First document content...",
+      "metadata": {
+        "domain": "instagram",
+        "source": "api",
+        "contentType": "post"
+      }
+    },
+    {
+      "id": "doc-2",
+      "content": "Second document content...",
+      "metadata": {
+        "domain": "instagram",
+        "source": "api",
+        "contentType": "post"
+      }
+    }
+  ]
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "total": 2,
+    "successful": 2,
+    "failed": 0,
+    "results": [
+      {
+        "documentId": "doc-1",
+        "status": "fulfilled"
+      },
+      {
+        "documentId": "doc-2",
+        "status": "fulfilled"
+      }
+    ]
+  },
+  "timestamp": "2024-01-01T00:00:00.000Z"
+}
+```
+
+### PUT /api/rag/documents/:id
+
+Update an existing document in the RAG system.
+
+**Parameters:**
+- `id` (path): Document ID to update
+
+**Request Body:**
+```json
+{
+  "content": "Updated document content...",
+  "metadata": {
+    "domain": "instagram",
+    "source": "api",
+    "contentType": "post"
+  }
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "documentId": "document-id",
+    "status": "updated"
+  },
+  "timestamp": "2024-01-01T00:00:00.000Z"
+}
+```
+
+### DELETE /api/rag/documents/:id
+
+Remove a document from the RAG system.
+
+**Parameters:**
+- `id` (path): Document ID to remove
+- `domain` (query, optional): Domain filter
+
+**Example:** `DELETE /api/rag/documents/doc-123?domain=instagram`
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "documentId": "doc-123",
+    "status": "removed"
+  },
+  "timestamp": "2024-01-01T00:00:00.000Z"
+}
+```
+
+## Administrative Endpoints
+
+### DELETE /api/rag/namespace/:namespace
+
+**Clear all data from a specific namespace** - Use with caution! This removes all documents in the specified namespace.
+
+**Parameters:**
+- `namespace` (path): Namespace to clear (e.g., `instagram`, `fitness`, `trading`, `general`)
+
+**Example:** `DELETE /api/rag/namespace/instagram`
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "namespace": "instagram",
+    "status": "cleared"
+  },
+  "timestamp": "2024-01-01T00:00:00.000Z"
+}
+```
+
+### GET /api/rag/health
+
+Simple health check for the RAG system.
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "status": "healthy",
+    "ragServiceInitialized": true,
+    "timestamp": "2024-01-01T00:00:00.000Z"
+  }
+}
+```
+
+### POST /api/rag/test-instagram
+
+Test the enhanced Instagram RAG analysis with predefined queries.
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Enhanced Instagram RAG analysis test completed",
+  "results": [
+    {
+      "query": "What are my best performing posts?",
+      "answer": "Based on your Instagram data...",
+      "sourcesCount": 5,
+      "confidence": 0.92,
+      "processingTime": 1234
+    }
+  ],
+  "improvements": [
+    "Instagram-specific query enhancement with OpenAI",
+    "Better search terms for vector similarity matching",
+    "Instagram analytics prompts for concrete insights"
+  ]
+}
+```
+
+---
+
 # Instagram API
 
 Base path: `/api/instagram`
@@ -1185,9 +1485,10 @@ The Instagram API provides comprehensive integration with Instagram Business API
 **Main pipeline endpoint** - Fetch from Instagram API, store in Firestore, sync to RAG system.
 
 **Query Parameters:**
-- `limit` (optional): Number of posts to fetch (default: 25, max: 100)
+- `limit` (optional): Number of posts to fetch (default: 1000, max: 1000) - **No artificial limits!**
 
-**Example:** `POST /api/instagram/sync?limit=50`
+**Example:** `POST /api/instagram/sync` (fetches all available posts)
+**Example:** `POST /api/instagram/sync?limit=50` (limit for testing only)
 
 **Response:**
 ```json
@@ -1277,9 +1578,10 @@ Get comprehensive analytics combining fresh account data with stored posts.
 **Sync fresh metrics** from Instagram API to Firestore - maintains data freshness like your Kotlin app.
 
 **Query Parameters:**
-- `limit` (optional): Number of recent posts to sync (default: 50, max: 100)
+- `limit` (optional): Number of recent posts to sync (default: 1000, max: 1000) - **No artificial limits!**
 
-**Example:** `POST /api/instagram/metrics/sync?limit=100`
+**Example:** `POST /api/instagram/metrics/sync` (syncs all available posts)
+**Example:** `POST /api/instagram/metrics/sync?limit=100` (limit for testing only)
 
 **Response:**
 ```json
@@ -1326,10 +1628,11 @@ Get Instagram account information from Instagram API.
 Get Instagram posts from Instagram API with pagination.
 
 **Query Parameters:**
-- `limit` (optional): Number of posts to fetch (default: 25, max: 100)
+- `limit` (optional): Number of posts to fetch (default: 1000, max: 1000) - **No artificial limits!**
 - `after` (optional): Pagination cursor
 
-**Example:** `GET /api/instagram/posts?limit=50&after=cursor_string`
+**Example:** `GET /api/instagram/posts` (fetches all available posts)
+**Example:** `GET /api/instagram/posts?limit=50&after=cursor_string` (limit for testing only)
 
 **Response:**
 ```json
@@ -1475,7 +1778,8 @@ Sync Firestore Instagram data to RAG system for AI queries.
 - `limit` (optional): Number of posts to process (default: 50, max: 100)
 - `dryRun` (optional): Run without making changes to preview results (default: false)
 
-**Example:** `POST /api/instagram/migrate/thumbnail-urls?limit=25&dryRun=true`
+**Example:** `POST /api/instagram/migrate/thumbnail-urls` (processes all posts needing thumbnails)
+**Example:** `POST /api/instagram/migrate/thumbnail-urls?limit=25&dryRun=true` (limit for testing only)
 
 **Response:**
 ```json
@@ -1637,27 +1941,178 @@ Health check for Firebase Firestore connection.
 }
 ```
 
+## Advanced Pipeline Endpoints
+
+### POST /api/instagram/sync-complete
+
+**Complete sync pipeline** - Instagram API → Firestore + JSON → RAG system in one call.
+
+**Query Parameters:**
+- `limit` (optional): Number of posts to sync (default: 1000, max: 1000) - **No artificial limits!**
+
+**Example:** `POST /api/instagram/sync-complete` (complete sync of all available posts)
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Complete Instagram sync pipeline completed successfully",
+  "data": {
+    "account": {
+      "username": "your_username",
+      "followersCount": 5000,
+      "mediaCount": 150
+    },
+    "sync": {
+      "postsFromAPI": 150,
+      "postsToFirestore": 150,
+      "postsToRAG": 150,
+      "jsonFilePath": "/path/to/instagram-complete-data.json"
+    },
+    "rag": {
+      "documentsAdded": 150,
+      "ragStatus": "loaded",
+      "processingTime": 5234
+    }
+  },
+  "processingTime": 15234,
+  "timestamp": 1640995200000
+}
+```
+
+### POST /api/instagram/load-json-to-rag
+
+Load existing JSON file data to RAG system.
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "JSON data loaded to RAG system successfully",
+  "data": {
+    "documentsAdded": 150,
+    "ragStatus": "loaded",
+    "processingTime": 3456
+  },
+  "timestamp": 1640995200000
+}
+```
+
+### GET /api/instagram/json-status
+
+Check status of the Instagram JSON data file.
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "exists": true,
+    "filePath": "/path/to/instagram-complete-data.json",
+    "fileSize": 2048576,
+    "lastModified": "2024-01-01T00:00:00.000Z",
+    "postsCount": 150,
+    "accountUsername": "your_username",
+    "lastSync": "2024-01-01T00:00:00.000Z",
+    "source": "instagram_business_api"
+  },
+  "timestamp": 1640995200000
+}
+```
+
+### POST /api/instagram/data-updated
+
+**Trigger RAG sync when data is updated** - Call this when Instagram data changes.
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Instagram data updated and successfully synced to RAG",
+  "data": {
+    "autoSyncEnabled": true,
+    "ragSynced": true,
+    "postsCount": 150,
+    "status": "synced",
+    "lastSyncAt": "2024-01-01T00:00:00.000Z"
+  },
+  "timestamp": 1640995200000
+}
+```
+
+## RAG Integration Endpoints
+
+### POST /api/instagram/rag/auto-sync
+
+Enable or disable automatic RAG sync for Instagram data.
+
+**Query Parameters:**
+- `enabled` (required): Boolean value to enable/disable auto-sync
+
+**Example:** `POST /api/instagram/rag/auto-sync?enabled=true`
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Automatic RAG sync enabled",
+  "data": {
+    "autoSyncEnabled": true,
+    "timestamp": "2024-01-01T00:00:00.000Z"
+  },
+  "timestamp": 1640995200000
+}
+```
+
+### GET /api/instagram/rag/status
+
+Get RAG sync status and configuration for Instagram data.
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "autoSyncEnabled": true,
+    "lastChecked": "2024-01-01T00:00:00.000Z"
+  },
+  "timestamp": 1640995200000
+}
+```
+
 ## Usage Examples
 
 ### Complete Data Pipeline (Kotlin App Compatible)
 ```bash
-# 1. Sync fresh data from Instagram API to Firestore
-curl -X POST "http://localhost:3000/api/instagram/sync?limit=50"
+# 1. Complete sync pipeline (all available posts - no limits!)
+curl -X POST "http://localhost:3000/api/instagram/sync-complete"
 
-# 2. Update metrics for existing posts
+# OR step-by-step approach:
+# 1a. Sync fresh data from Instagram API to Firestore (all posts)
+curl -X POST "http://localhost:3000/api/instagram/sync"
+
+# 1b. Update metrics for existing posts
 curl -X POST "http://localhost:3000/api/instagram/metrics/update"
 
-# 3. Sync to RAG system for AI queries
+# 1c. Sync to RAG system for AI queries
 curl -X POST "http://localhost:3000/api/instagram/firestore/sync-to-rag"
 
-# 4. Get analytics
+# 2. Get analytics
 curl "http://localhost:3000/api/instagram/analytics"
+
+# 3. Ask AI questions about your data
+curl -X POST "http://localhost:3000/api/rag/query" \
+  -H "Content-Type: application/json" \
+  -d '{"query": "What are my best performing posts?", "domain": "instagram"}'
 ```
 
 ### Periodic Metrics Sync (Like Kotlin App)
 ```bash
-# Sync fresh metrics from Instagram API to Firestore
-curl -X POST "http://localhost:3000/api/instagram/metrics/sync?limit=100"
+# Sync fresh metrics from Instagram API to Firestore (all posts - no limits!)
+curl -X POST "http://localhost:3000/api/instagram/metrics/sync"
+
+# Enable auto-sync to RAG when data changes
+curl -X POST "http://localhost:3000/api/instagram/rag/auto-sync?enabled=true"
 ```
 
 ### Access Existing Firestore Data

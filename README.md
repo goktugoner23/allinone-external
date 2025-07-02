@@ -10,11 +10,14 @@ A comprehensive Node.js TypeScript service providing Binance trading API functio
 - **🪙 COIN-M Futures**: Complete COIN-M Futures trading support
 - **🔌 Real-time WebSocket**: Live market data subscriptions and updates
 
-### Instagram Business Analytics
+### Instagram Business Analytics & AI
 - **📱 Instagram API Integration**: Complete Instagram Business API data pipeline
 - **🔥 Firestore Storage**: Store and manage Instagram posts with full metadata
-- **🤖 AI-Powered Analytics**: RAG system for intelligent Instagram content analysis
+- **🤖 AI-Powered Analytics**: Advanced RAG system for intelligent Instagram content analysis
 - **🖼️ Rich Media Support**: Thumbnail URLs and complete media data for all posts
+- **⚡ No Artificial Limits**: Fetch ALL available posts (no 25/50 post limits!)
+- **📊 Advanced Content Analysis**: AI-powered insights with engagement rate calculations
+- **🔄 Auto-Sync RAG**: Automatic synchronization between Instagram data and AI system
 
 ### System Architecture
 - **🏗️ Modular Architecture**: Organized route structure with separate modules for each service
@@ -61,7 +64,30 @@ RATE_LIMIT_MAX=100
 3. Add your server's IP address to the API key whitelist
 4. Replace the placeholder values in `.env` with your actual API credentials
 
-### 4. Development
+### 4. Instagram & RAG Configuration (Optional)
+For Instagram Business API and AI features, add to your `.env`:
+```env
+# Instagram Business API Configuration
+INSTAGRAM_ACCESS_TOKEN=your_instagram_access_token
+INSTAGRAM_USER_ID=your_instagram_user_id
+INSTAGRAM_APP_ID=your_app_id
+INSTAGRAM_APP_SECRET=your_app_secret
+
+# Firebase Configuration (for Instagram data storage)
+FIREBASE_PROJECT_ID=your_firebase_project_id
+FIREBASE_PRIVATE_KEY=your_firebase_private_key
+FIREBASE_CLIENT_EMAIL=your_firebase_client_email
+
+# OpenAI Configuration (for AI analysis)
+OPENAI_API_KEY=your_openai_api_key
+
+# Pinecone Configuration (for vector database)
+PINECONE_API_KEY=your_pinecone_api_key
+PINECONE_ENVIRONMENT=your_pinecone_environment
+PINECONE_INDEX=your_pinecone_index_name
+```
+
+### 5. Development
 ```bash
 # Development mode with hot reload
 npm run dev
@@ -77,6 +103,19 @@ npm test
 
 # Type checking
 npm run type-check
+```
+
+## Quick Examples
+
+### Instagram Data Sync
+```bash
+# Complete sync - fetches ALL Instagram posts (no limits!)
+curl -X POST http://localhost:3000/api/instagram/sync-complete
+
+# Ask AI about your Instagram data
+curl -X POST http://localhost:3000/api/rag/query \
+  -H "Content-Type: application/json" \
+  -d '{"query": "What are my best performing posts?", "domain": "instagram"}'
 ```
 
 ## API Documentation
@@ -154,6 +193,41 @@ The API is organized into logical modules:
 
 - **Management**:
   - `GET /websocket/status` - WebSocket connection status
+
+#### Instagram Business API (`/api/instagram/`)
+- **Core Pipeline**:
+  - `POST /sync-complete` - Complete Instagram data sync (API → Firestore + JSON → RAG)
+  - `POST /sync` - Fetch Instagram data and store in Firestore
+  - `GET /analytics` - Comprehensive Instagram analytics and insights
+
+- **Data Access**:
+  - `GET /posts` - Get all Instagram posts (no artificial limits!)
+  - `GET /firestore/posts` - Get posts from Firestore with smart auto-sync
+  - `GET /account` - Instagram account information
+
+- **Metrics Management**:
+  - `POST /metrics/sync` - Sync fresh metrics from Instagram API
+  - `POST /metrics/update` - Update metrics for existing posts
+
+- **RAG Integration**:
+  - `POST /rag/auto-sync?enabled=true` - Enable automatic RAG sync
+  - `POST /firestore/sync-to-rag` - Manual sync to RAG system
+  - `POST /data-updated` - Trigger RAG sync when data changes
+
+#### RAG (AI Question-Answering) API (`/api/rag/`)
+- **Query System**:
+  - `POST /query` - Ask questions about your Instagram data
+  - `GET /status` - RAG system status and statistics
+
+- **Document Management**:
+  - `POST /documents` - Add single document to RAG
+  - `POST /documents/batch` - Add multiple documents
+  - `DELETE /documents/:id` - Remove document
+  - `DELETE /namespace/:namespace` - Clear entire namespace
+
+- **Health & Testing**:
+  - `GET /health` - RAG system health check
+  - `POST /test-instagram` - Test Instagram analysis
 
 ### Response Format
 
@@ -369,6 +443,15 @@ For support and questions:
 - Review the test files for usage examples
 
 ## Changelog
+
+### v1.2.0 (January 2025) - AI & Performance Update
+- ⚡ **Removed Artificial Limits**: Fetch ALL available Instagram posts (no more 25/50 post limits!)
+- 🧠 **Enhanced AI Analysis**: Improved RAG responses with engagement rate calculations and performance insights
+- 🔧 **New RAG Endpoints**: Complete document management and namespace clearing capabilities
+- 🚀 **Complete Sync Pipeline**: One-click Instagram API → Firestore → RAG synchronization
+- 📊 **Advanced Content Processing**: Better chunking for Instagram content preserving post structure
+- 🔄 **Auto-Sync RAG**: Automatic synchronization between Instagram data updates and AI system
+- 🎯 **Improved Query Understanding**: AI better interprets Instagram-specific questions about performance
 
 ### v1.1.0 (December 2024)
 - 🆕 **Instagram Business API Integration**: Complete Instagram data pipeline with Firestore storage
