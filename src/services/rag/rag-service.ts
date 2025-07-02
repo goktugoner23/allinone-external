@@ -158,6 +158,16 @@ export class RAGService {
         topK: semanticQuery.topK
       });
 
+      // Skip document retrieval for casual conversation (empty query)
+      if (!semanticQuery.query || semanticQuery.query.trim() === '') {
+        logger.debug('Skipping document retrieval for casual conversation', {
+          queryEmpty: !semanticQuery.query,
+          queryTrimmed: semanticQuery.query ? semanticQuery.query.trim() : 'undefined',
+          queryLength: semanticQuery.query ? semanticQuery.query.length : 0
+        });
+        return [];
+      }
+
       // Enhanced query for Instagram content
       let searchQuery = semanticQuery.query;
       if (semanticQuery.filters.domain === 'instagram') {

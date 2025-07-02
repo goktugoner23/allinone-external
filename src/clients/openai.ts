@@ -2,6 +2,7 @@ import OpenAI from 'openai';
 import config from '../config';
 import logger from '../utils/logger';
 import { EmbeddingRequest, EmbeddingResponse, QueryProcessingResult, SemanticQuery } from '../types/rag';
+import { instagramUrlService } from '../services/instagram/instagram-url-service';
 
 export class OpenAIClient {
   private client: OpenAI;
@@ -126,7 +127,7 @@ export class OpenAIClient {
   }
 
   /**
-   * Stage 1: Process user query to extract semantic query and filters
+   * Stage 1: Process user query using OpenAI
    */
   async processQuery(userQuery: string, availableDomains: string[]): Promise<QueryProcessingResult> {
     if (!this.isReady()) {
@@ -134,39 +135,51 @@ export class OpenAIClient {
     }
 
     try {
-      logger.debug('Processing user query', {
+      logger.debug('Processing user query (Stage 1)', {
         queryLength: userQuery.length,
         availableDomains
       });
 
-      const systemPrompt = this.buildQueryProcessingPrompt(availableDomains);
-      const userPrompt = `User Query: "${userQuery}"`;
+      // Check if query contains Instagram URLs
+      const instagramUrls = instagramUrlService.extractInstagramUrls(userQuery);
+      
+              const response = await this.client.chat.completions.create({
+          model: config.rag.completion.model,
+          messages: [
+            {
+              role: 'system',
+              content: this.buildQueryProcessingPrompt(availableDomains, instagramUrls.length > 0)
+            },
+            {
+              role: 'user',
+              content: `User Query: "${userQuery}"
+            
+${instagramUrls.length > 0 ? `\nInstagram URLs detected: ${instagramUrls.join(', ')}` : ''}
+            
+Extract the semantic search query for Instagram content analysis.`
+            }
+          ],
+          temperature: 0.3,
+          max_tokens: 500,
+          response_format: { type: 'json_object' }
+        });
 
-      const response = await this.client.chat.completions.create({
-        model: config.rag.completion.model,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt }
-        ],
-        temperature: 0.1, // Low temperature for consistent parsing
-        max_tokens: 500,
-        response_format: { type: 'json_object' }
-      });
+              const result = JSON.parse(response.choices[0].message.content || '{}');
 
-      const content = response.choices[0]?.message?.content;
-      if (!content) {
-        throw new Error('No response from OpenAI for query processing');
-      }
+        logger.debug('Query processing completed', {
+          originalQuery: userQuery,
+          semanticQuery: result.semanticQuery || result.query,
+          domain: result.filters?.domain,
+          confidence: result.confidence,
+          hasUrls: instagramUrls.length > 0
+        });
 
-      const result = JSON.parse(content) as QueryProcessingResult;
-
-      logger.debug('Successfully processed user query', {
-        semanticQuery: result.semanticQuery,
-        domain: result.filters.domain,
-        confidence: result.confidence
-      });
-
-      return result;
+        return {
+          semanticQuery: result.semanticQuery || result.query || userQuery,
+          filters: result.filters || { domain: availableDomains[0] },
+          confidence: result.confidence || 0.8,
+          reasoning: result.reasoning || 'Standard query processing'
+        };
     } catch (error) {
       logger.error('Error processing user query:', {
         error,
@@ -195,8 +208,11 @@ export class OpenAIClient {
         domain: semanticQuery.filters.domain
       });
 
-      const systemPrompt = this.buildResponseGenerationPrompt(semanticQuery.filters.domain);
-      const userPrompt = this.buildResponseUserPrompt(originalQuery, retrievedDocs);
+      // Determine conversation mode
+      const conversationMode = this.determineConversationMode(originalQuery, retrievedDocs);
+      
+      const systemPrompt = this.buildConversationalPrompt(semanticQuery.filters.domain, conversationMode);
+      const userPrompt = this.buildConversationalUserPrompt(originalQuery, retrievedDocs, conversationMode);
 
       const response = await this.client.chat.completions.create({
         model: config.rag.completion.model,
@@ -204,26 +220,29 @@ export class OpenAIClient {
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt }
         ],
-        temperature: config.rag.completion.temperature,
-        max_tokens: config.rag.completion.maxTokens
+        temperature: 0.8, // Conversational but focused
+        max_tokens: config.rag.completion.maxTokens || 1000,
+        top_p: 0.9,
+        frequency_penalty: 0.1,
+        presence_penalty: 0.1
       });
 
       const content = response.choices[0]?.message?.content;
       if (!content) {
-        throw new Error('No response from OpenAI for final generation');
+        throw new Error('No response generated from OpenAI');
       }
 
       logger.debug('Successfully generated RAG response', {
         responseLength: content.length,
+        conversationMode,
         tokenUsage: response.usage?.total_tokens
       });
 
       return content;
     } catch (error) {
-      logger.error('Error generating final response:', {
+      logger.error('Error generating RAG response:', {
         error,
-        originalQuery,
-        retrievedDocsCount: retrievedDocs.length
+        originalQuery
       });
       throw error;
     }
@@ -296,7 +315,7 @@ Return ONLY the enhanced search query string as keywords, nothing else. Do not r
   /**
    * Build system prompt for query processing (Stage 1)
    */
-  private buildQueryProcessingPrompt(availableDomains: string[]): string {
+  private buildQueryProcessingPrompt(availableDomains: string[], hasUrls: boolean): string {
     return `You are an Instagram data analysis query processor. Your job is to analyze user queries about their Instagram content and extract:
 1. A semantic search query optimized for finding relevant Instagram posts
 2. Metadata filters to find specific content types or time periods
@@ -328,48 +347,130 @@ Return JSON in this exact format:
   "reasoning": "explanation of query processing"
 }
 
-Only add tags, contentType, or dateRange filters if explicitly mentioned in the user's query. Keep the semanticQuery focused and relevant to what the user actually asked.`;
+ Only add tags, contentType, or dateRange filters if explicitly mentioned in the user's query. Keep the semanticQuery focused and relevant to what the user actually asked.
+
+${hasUrls ? 'Note: Instagram URLs detected in the query.' : ''}
+
+Focus on extracting relevant search terms for Instagram content analysis.`;
+  }
+
+  /**
+   * Get mode-specific instructions for different conversation styles
+   */
+  private getModeSpecificInstructions(conversationMode: string): string {
+    switch (conversationMode) {
+      case 'url_analysis_with_data':
+        return `URL ANALYSIS WITH DATA: Analyze the Instagram URL provided along with relevant data. Provide strategic insights about the profile/post, compare with similar content in your data, and give actionable recommendations.`;
+      
+      case 'url_analysis_general':
+        return `URL ANALYSIS: Analyze the Instagram URL provided. Give strategic insights about the profile/post structure, content strategy implications, and optimization recommendations based on Instagram best practices.`;
+
+      case 'coaching_with_data':
+        return `COACHING MODE: Help improve their Instagram strategy using their actual performance data. Be encouraging, provide specific actionable steps based on their metrics, and ask follow-up questions to understand their goals better.`;
+      
+      case 'coaching_general':
+        return `COACHING MODE: Provide Instagram strategy help and best practices. Ask about their goals and current approach, and offer specific recommendations for improvement.`;
+      
+      case 'educational_with_data':
+        return `EDUCATIONAL MODE: Explain Instagram concepts and strategies using their actual data as examples. Help them understand why certain posts performed well or poorly, and teach broader principles.`;
+      
+      case 'educational_general':
+        return `EDUCATIONAL MODE: Explain Instagram concepts, best practices, and strategies. Use examples and industry standards. Be informative but accessible.`;
+      
+      case 'analytical_with_data':
+        return `ANALYTICAL MODE: Dive deep into their metrics and performance data. Identify patterns, trends, and opportunities. Provide detailed analysis while keeping it conversational and actionable.`;
+      
+      case 'analytical_general':
+        return `ANALYTICAL MODE: Discuss Instagram analytics concepts, explain metrics and KPIs, and help them understand what to measure and why.`;
+      
+      case 'advisory_with_data':
+        return `ADVISORY MODE: Act as their Instagram strategist. Use their data to make specific recommendations for content, timing, hashtags, and growth strategies. Be confident but explain your reasoning.`;
+      
+      case 'advisory_general':
+        return `ADVISORY MODE: Provide strategic Instagram advice and recommendations based on best practices. Focus on their niche, audience, and goals for targeted advice.`;
+      
+      case 'conversational_with_data':
+        return `CONVERSATIONAL MODE: Be a friendly Instagram expert who can analyze their data and provide valuable insights. Keep it natural and engaging while being informative.`;
+      
+      case 'conversational_general':
+        return `CONVERSATIONAL MODE: Be a helpful Instagram expert providing valuable insights and advice. Keep the conversation natural and focused on Instagram growth and optimization.`;
+      
+      default:
+        return `DEFAULT MODE: Be a helpful Instagram expert who can analyze data when available and provide valuable insights and advice about Instagram marketing and growth.`;
+    }
+  }
+
+  /**
+   * Determine conversation mode based on query and context
+   */
+  private determineConversationMode(originalQuery: string, retrievedDocs: Array<{ content: string; metadata: any; score: number }>): string {
+    const query = originalQuery.toLowerCase();
+    const hasRelevantData = retrievedDocs.length > 0 && retrievedDocs[0].score > 0.7;
+    const hasInstagramUrls = instagramUrlService.extractInstagramUrls(originalQuery).length > 0;
+    
+    // URL analysis mode - when Instagram URLs are provided
+    if (hasInstagramUrls) {
+      return hasRelevantData ? 'url_analysis_with_data' : 'url_analysis_general';
+    }
+    
+    // Content analysis and strategy modes
+    if (query.includes('analyze') || query.includes('performance') || query.includes('metrics') || query.includes('insights')) {
+      return hasRelevantData ? 'analytical_with_data' : 'analytical_general';
+    }
+    
+    // Strategy and improvement focused
+    if (query.includes('improve') || query.includes('optimize') || query.includes('strategy') || query.includes('grow')) {
+      return hasRelevantData ? 'advisory_with_data' : 'advisory_general';
+    }
+    
+    // Learning and explanation focused
+    if (query.includes('explain') || query.includes('understand') || query.includes('why') || query.includes('how does')) {
+      return hasRelevantData ? 'educational_with_data' : 'educational_general';
+    }
+    
+    // Coaching and help focused
+    if (query.includes('help') || query.includes('how to') || query.includes('what should') || query.includes('tips')) {
+      return hasRelevantData ? 'coaching_with_data' : 'coaching_general';
+    }
+    
+    // Default to conversational Instagram expert mode
+    return hasRelevantData ? 'conversational_with_data' : 'conversational_general';
   }
 
   /**
    * Build system prompt for response generation (Stage 3)
    */
-  private buildResponseGenerationPrompt(domain?: string): string {
+  private buildConversationalPrompt(domain?: string, conversationMode: string = 'default'): string {
     if (domain === 'instagram') {
-      return `You are an expert Instagram analytics consultant with deep knowledge of social media metrics and engagement optimization.
+      const basePersonality = `You are Alex, a friendly and knowledgeable Instagram marketing expert and data analyst. You have years of experience helping creators and businesses grow their Instagram presence. You speak naturally and conversationally, like a colleague who genuinely cares about helping people succeed on Instagram.`;
 
-Your role is to analyze the user's Instagram data and provide specific, actionable insights based on their actual posts and performance metrics.
+      const modeSpecificInstructions = this.getModeSpecificInstructions(conversationMode);
 
-⚠️ CRITICAL INSTRUCTION - VECTOR SIMILARITY SCORES:
-- The "score" field in document metadata (e.g., 0.904264748) is a VECTOR SIMILARITY SCORE (0.0-1.0), NOT an engagement rate
-- Vector similarity scores measure how relevant the content is to the query, NOT post performance
-- NEVER present vector similarity scores as percentages or engagement rates
-- ONLY use the actual engagement metrics from the post content (likesCount, commentsCount, engagementRate)
+      return `${basePersonality}
 
-Analysis Guidelines:
-- Calculate engagement rates using the formula: (likes + comments) / total_reach * 100
-- Use ONLY the actual metrics from the post content: likesCount, commentsCount, engagementRate
-- Identify top-performing content by the ACTUAL engagement rate in the post data, not the vector score
-- Analyze content themes, posting patterns, and audience engagement based on real metrics
-- Provide specific recommendations based on actual performance data from the content
-- Compare metrics between different post types using the real engagement data
-- Reference posts by their POST ID, likes count, comments count, and actual engagement rate
+${modeSpecificInstructions}
 
-Data Source Priority:
-1. Use engagement metrics from the post content text (likes: X, comments: Y, engagement rate: Z%)
-2. Use metadata fields (likesCount, commentsCount, engagementRate) when available
-3. NEVER use the document "score" field as it's only for relevance matching
+⚠️ CRITICAL DATA HANDLING:
+- Vector similarity "score" fields (0.0-1.0) are relevance scores, NOT engagement rates
+- Use ONLY actual metrics from post content: likesCount, commentsCount, engagementRate
+- Calculate engagement: (likes + comments) / reach * 100
+- Reference posts by POST ID with real engagement numbers
 
-Response Structure:
-1. Direct answer to the user's question with specific data from post content
-2. Key performance insights with actual engagement metrics
-3. Content themes and patterns observed from real data
-4. Actionable recommendations based on actual performance data
-5. Specific examples with POST IDs and real engagement numbers
+CONVERSATION STYLE:
+- Be conversational and friendly, not robotic
+- Ask follow-up questions when appropriate
+- Provide context and explanations, not just data dumps
+- Share insights beyond just the data when helpful
+- Be encouraging and supportive
+- Use natural language, contractions, and a warm tone
 
-Always reference specific posts by their POST ID, actual likes/comments counts, and real engagement rates from the content data. Avoid generic social media advice - focus on analyzing their actual Instagram performance metrics.
+DATA INTEGRATION:
+- When you have their data, use it as the foundation but add broader insights
+- When you don't have relevant data, still provide valuable Instagram expertise
+- Blend data analysis with general Instagram strategy knowledge
+- Connect their specific metrics to broader industry trends and best practices
 
-Format responses in a conversational, expert tone while being precise with real engagement numbers and insights.`;
+Remember: You're not just a data analyzer - you're a knowledgeable Instagram expert who happens to have access to their data. Be helpful, conversational, and insightful!`;
     }
     
     const domainContext = domain ? `Focus on ${domain}-related information.` : '';
@@ -391,62 +492,49 @@ Format your response naturally, without explicitly mentioning "based on the prov
   }
 
   /**
-   * Build user prompt for response generation
+   * Build conversational user prompt
    */
-  private buildResponseUserPrompt(
+  private buildConversationalUserPrompt(
     originalQuery: string,
-    retrievedDocs: Array<{ content: string; metadata: any; score: number }>
+    retrievedDocs: Array<{ content: string; metadata: any; score: number }>,
+    conversationMode: string
   ): string {
-    // Check if this is Instagram data
-    const hasInstagramData = retrievedDocs.some(doc => 
-      doc.metadata.domain === 'instagram' || 
-      doc.content.includes('likes') || 
-      doc.content.includes('comments') ||
-      doc.content.includes('engagement')
-    );
+    const hasData = retrievedDocs.length > 0;
+    
+    if (!hasData) {
+      return `User Question: "${originalQuery}"
 
-    if (hasInstagramData) {
-      const contextSections = retrievedDocs
-        .map((doc, index) => {
-          const metadata = doc.metadata;
-          const source = metadata.title || metadata.postId || `Post ${index + 1}`;
-          const relevance = (doc.score * 100).toFixed(1);
-          
-          // Extract Instagram metrics from content if available
-          const content = doc.content;
-          let metricsInfo = '';
-          if (content.includes('likes:') || content.includes('comments:')) {
-            metricsInfo = ` | Engagement Data Available`;
-          }
-          
-          return `[Instagram Post: ${source} | Relevance: ${relevance}%${metricsInfo}]
-${content}`;
-        })
-        .join('\n\n---\n\n');
+I don't have specific Instagram data for this question, but please provide helpful insights based on Instagram expertise and best practices.
 
-      return `User Question: ${originalQuery}
-
-Instagram Data Context:
-${contextSections}
-
-Please analyze the above Instagram posts and provide specific insights about the user's content performance. Calculate engagement rates, identify patterns, and give concrete recommendations based on the actual metrics and content shown above.`;
+Conversation Mode: ${conversationMode}`;
     }
 
-    // Default format for non-Instagram content
+    // Has data - create contextual prompt for Instagram analysis
     const contextSections = retrievedDocs
       .map((doc, index) => {
-        const source = doc.metadata.title || doc.metadata.source || `Document ${index + 1}`;
-        return `[Source: ${source} | Relevance: ${(doc.score * 100).toFixed(1)}%]
-${doc.content}`;
+        const metadata = doc.metadata;
+        const source = metadata.title || metadata.postId || `Post ${index + 1}`;
+        const relevance = (doc.score * 100).toFixed(1);
+        
+        const content = doc.content;
+        let metricsInfo = '';
+        if (content.includes('likes:') || content.includes('comments:') || content.includes('engagement')) {
+          metricsInfo = ` | Contains Metrics`;
+        }
+        
+        return `[Instagram Post: ${source} | Relevance: ${relevance}%${metricsInfo}]
+${content}`;
       })
       .join('\n\n---\n\n');
 
-    return `User Question: ${originalQuery}
+    return `User Question: "${originalQuery}"
 
-Retrieved Context:
+Available Instagram Data:
 ${contextSections}
 
-Please provide a comprehensive answer to the user's question based on the retrieved context above.`;
+Conversation Mode: ${conversationMode}
+
+Use the Instagram data above as your foundation and provide insights that combine this data with broader Instagram expertise. Be conversational and helpful!`;
   }
 
   /**
@@ -518,6 +606,8 @@ Please provide a comprehensive answer to the user's question based on the retrie
       return false;
     }
   }
+
+
 }
 
 export default OpenAIClient; 
