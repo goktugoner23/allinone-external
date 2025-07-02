@@ -1028,6 +1028,7 @@ async function loadJsonToRAG(jsonPath: string): Promise<{
     const { addDocumentsToRAG } = await import('./rag');
     
     // Add documents to RAG system in batches
+    // Note: Custom chunking for Instagram content is handled automatically in EmbeddingService
     const batchSize = 10;
     let totalAdded = 0;
     
@@ -1060,55 +1061,102 @@ function createPostContentForRAG(post: any, account: any): string {
   const metrics = post.metrics || {};
   const hashtags = (post.hashtags || []).join(' ');
   const mentions = (post.mentions || []).join(' ');
+  const engagementRate = metrics.engagementRate || 0;
   
   return `
-Instagram Post by @${account?.username || 'unknown'}
+Instagram Post Analysis
 
-Caption: ${post.caption || 'No caption'}
+POST ID: ${post.id}
+SHORTCODE: ${post.shortcode || 'N/A'}
+USERNAME: @${account?.username || 'unknown'}
+POST TYPE: ${post.mediaType || 'UNKNOWN'}
+PUBLISHED: ${post.timestamp}
 
-Performance Metrics:
+CAPTION: ${post.caption || 'No caption'}
+
+PERFORMANCE METRICS:
 - Likes: ${metrics.likesCount || 0}
 - Comments: ${metrics.commentsCount || 0}  
-- Engagement Rate: ${(metrics.engagementRate || 0).toFixed(2)}%
-- Views: ${metrics.viewsCount || 'N/A'}
+- Engagement Rate: ${engagementRate.toFixed(2)}%
+- Shares: ${metrics.sharesCount || 0}
+- Saves: ${metrics.savesCount || 0}
+- Video Views: ${metrics.videoViewsCount || 'N/A'}
 - Reach: ${metrics.reachCount || 'N/A'}
+- Total Interactions: ${metrics.totalInteractions || 0}
 
-Hashtags: ${hashtags}
-${mentions ? `Mentions: ${mentions}` : ''}
-Post Type: ${post.mediaType || 'UNKNOWN'}
-Created: ${post.timestamp}
+CONTENT ANALYSIS:
+- Hashtags Used: ${hashtags || 'None'}
+${mentions ? `- Mentions: ${mentions}` : '- Mentions: None'}
+- Engagement Level: ${getEngagementLevel(engagementRate)}
+- Performance Category: ${getPerformanceLevel(metrics)}
 
-Analysis:
-- Engagement Level: ${getEngagementLevel(metrics.engagementRate || 0)}
-- Performance: ${getPerformanceDescription(metrics)}
+PERFORMANCE INSIGHTS:
+${getPerformanceDescription(metrics, engagementRate)}
 
-This post had ${getPerformanceLevel(metrics)} performance.
+This post achieved ${engagementRate.toFixed(2)}% engagement rate and received ${(metrics.likesCount || 0) + (metrics.commentsCount || 0)} total interactions.
 `.trim();
 }
 
 /**
- * Helper functions for content analysis
+ * Get engagement level description
  */
-function getEngagementLevel(rate: number): string {
-  if (rate > 5) return 'high';
-  if (rate > 2) return 'moderate';
-  return 'low';
+function getEngagementLevel(engagementRate: number): string {
+  if (engagementRate >= 6) return 'Excellent (6%+)';
+  if (engagementRate >= 3) return 'Good (3-6%)';
+  if (engagementRate >= 1) return 'Average (1-3%)';
+  return 'Low (<1%)';
 }
 
-function getPerformanceDescription(metrics: any): string {
-  const comments = metrics.commentsCount || 0;
-  if (comments > 20) return 'excellent engagement with many comments';
-  if (comments > 10) return 'good engagement with several comments';
-  if (comments > 5) return 'decent engagement with some comments';
-  return 'basic engagement';
-}
-
+/**
+ * Get performance level
+ */
 function getPerformanceLevel(metrics: any): string {
-  const engagement = metrics.engagementRate || 0;
-  if (engagement > 5) return 'excellent';
-  if (engagement > 3) return 'strong';
-  if (engagement > 1) return 'decent';
-  return 'basic';
+  const engagementRate = metrics.engagementRate || 0;
+  const likes = metrics.likesCount || 0;
+  const comments = metrics.commentsCount || 0;
+  
+  if (engagementRate >= 5 && likes > 50) return 'outstanding';
+  if (engagementRate >= 3 && likes > 30) return 'strong';
+  if (engagementRate >= 1.5) return 'moderate';
+  return 'weak';
 }
+
+/**
+ * Get detailed performance description
+ */
+function getPerformanceDescription(metrics: any, engagementRate: number): string {
+  const likes = metrics.likesCount || 0;
+  const comments = metrics.commentsCount || 0;
+  const saves = metrics.savesCount || 0;
+  const shares = metrics.sharesCount || 0;
+  
+  const insights = [];
+  
+  if (engagementRate >= 5) {
+    insights.push('This post performed exceptionally well with high audience engagement.');
+  } else if (engagementRate >= 3) {
+    insights.push('This post had solid performance with good audience interaction.');
+  } else if (engagementRate >= 1.5) {
+    insights.push('This post had moderate performance with decent engagement.');
+  } else {
+    insights.push('This post had lower engagement compared to typical performance.');
+  }
+  
+  if (comments > likes * 0.05) {
+    insights.push('High comment-to-like ratio indicates strong audience conversation.');
+  }
+  
+  if (saves > 0) {
+    insights.push(`Content was saved ${saves} times, indicating valuable content.`);
+  }
+  
+  if (shares > 0) {
+    insights.push(`Content was shared ${shares} times, showing viral potential.`);
+  }
+  
+  return insights.join(' ');
+}
+
+
 
 export default router; 

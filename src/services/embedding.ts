@@ -46,8 +46,21 @@ export class EmbeddingService {
         namespace
       });
 
+      // Use custom chunking options for Instagram content
+      let chunkingOptions;
+      if (document.metadata.domain === 'instagram') {
+        chunkingOptions = {
+          maxChunkSize: 3000, // Larger chunks to preserve Instagram post structure
+          overlapSize: 100,   // Smaller overlap since posts are cohesive units
+          minChunkSize: 500,  // Ensure meaningful content in each chunk
+          preserveParagraphs: true,
+          preserveSentences: true
+        };
+        logger.info('Using custom chunking for Instagram content', chunkingOptions);
+      }
+
       // Chunk the document if needed
-      const chunks = await this.textChunker.chunkDocument(document);
+      const chunks = await this.textChunker.chunkDocument(document, chunkingOptions);
       
       // Embed all chunks
       await this.embedChunks(chunks, namespace);
@@ -55,7 +68,8 @@ export class EmbeddingService {
       logger.info('Successfully embedded document', {
         documentId: document.id,
         chunkCount: chunks.length,
-        namespace
+        namespace,
+        customChunking: document.metadata.domain === 'instagram'
       });
     } catch (error) {
       logger.error('Error embedding document:', {

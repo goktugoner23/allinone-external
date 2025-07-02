@@ -523,5 +523,53 @@ router.post('/test-instagram',
   }
 });
 
+/**
+ * DELETE /api/rag/namespace/:namespace
+ * Clear all data from a specific namespace (temporary endpoint for fixing chunking issues)
+ */
+router.delete('/namespace/:namespace',
+  ensureRAGServiceInitialized,
+  async (req: Request, res: Response) => {
+    try {
+      const { namespace } = req.params;
+      
+      logger.info('Clearing namespace', { namespace });
+      
+      // Get the Pinecone client from the embedding service
+      const embeddingService = (ragService as any).embeddingService;
+      const vectorDb = (embeddingService as any).vectorDb;
+      
+      // Delete all vectors in the namespace
+      await vectorDb.delete({
+        ids: [],
+        namespace,
+        deleteAll: true
+      });
+      
+      logger.info('Successfully cleared namespace', { namespace });
+      
+      res.json({
+        success: true,
+        data: {
+          namespace,
+          status: 'cleared'
+        },
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      logger.error('Failed to clear namespace:', {
+        error,
+        namespace: req.params.namespace
+      });
+
+      res.status(500).json({
+        success: false,
+        error: 'Failed to clear namespace',
+        code: 'NAMESPACE_CLEAR_FAILED'
+      });
+    }
+  }
+);
+
 export default router;
 export { initializeRAGService, addDocumentsToRAG }; 
