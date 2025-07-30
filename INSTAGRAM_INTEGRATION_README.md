@@ -66,6 +66,10 @@ The Instagram integration system provides:
 
 ## API Endpoints
 
+**Base URL:**
+- **Development**: `http://localhost:3000`
+- **Production**: `http://129.212.143.6:3000`
+
 ### Firebase Firestore Endpoints (For existing data from your Kotlin app)
 
 #### GET /api/instagram/firestore/posts

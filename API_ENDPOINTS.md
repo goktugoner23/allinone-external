@@ -5,7 +5,22 @@ This document provides comprehensive documentation for all API endpoints in the 
 ## Base URL
 
 - **Development**: `http://localhost:3000`
-- **Production**: `https://your-domain.com`
+- **Production**: `http://129.212.143.6:3000`
+
+**Connection Details:**
+- **Port**: 3000
+- **Protocol**: HTTP
+- **IPv4 Address**: Use the IPv4 address (129.212.143.6) for production connections
+- **Reserved IP**: Not applicable - use the public IPv4 address
+
+**Example Usage:**
+```bash
+# Production
+curl http://129.212.143.6:3000/health
+
+# Development  
+curl http://localhost:3000/health
+```
 
 ## Authentication
 

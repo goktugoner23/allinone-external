@@ -18,12 +18,16 @@ An **Instagram-focused GPT** that can:
 ### 1. Start the Server
 ```bash
 npm install && npm run dev
-# Server: http://localhost:3000
+# Development Server: http://localhost:3000
+# Production Server: http://129.212.143.6:3000
 ```
 
 ### 2. Basic AI Chat Request
 ```javascript
+// Development
 const response = await fetch('http://localhost:3000/api/rag/query', {
+// Production  
+// const response = await fetch('http://129.212.143.6:3000/api/rag/query', {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify({
@@ -38,7 +42,10 @@ console.log(data.data.answer); // AI's strategic advice
 
 ### 3. Analyze Instagram URLs
 ```javascript
+// Development
 const response = await fetch('http://localhost:3000/api/rag/query', {
+// Production
+// const response = await fetch('http://129.212.143.6:3000/api/rag/query', {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify({

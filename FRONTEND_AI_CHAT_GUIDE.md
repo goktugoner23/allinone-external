@@ -5,8 +5,12 @@ Quick guide to integrate Instagram AI chat into your frontend applications.
 ## 🚀 Basic Setup
 
 ```javascript
+// Base URLs
+const DEV_URL = 'http://localhost:3000';
+const PROD_URL = 'http://129.212.143.6:3000';
+
 async function askInstagramAI(question) {
-  const response = await fetch('http://localhost:3000/api/rag/query', {
+  const response = await fetch(`${PROD_URL}/api/rag/query`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -47,7 +51,7 @@ export function InstagramAIChat() {
     setLoading(true);
     
     try {
-      const response = await fetch('/api/rag/query', {
+      const response = await fetch(`${PROD_URL}/api/rag/query`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query: input, domain: 'instagram' })
