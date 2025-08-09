@@ -8,17 +8,19 @@ This document provides comprehensive documentation for all API endpoints in the 
 - **Production**: `http://129.212.143.6:3000`
 
 **Connection Details:**
+
 - **Port**: 3000
 - **Protocol**: HTTP
 - **IPv4 Address**: Use the IPv4 address (129.212.143.6) for production connections
 - **Reserved IP**: Not applicable - use the public IPv4 address
 
 **Example Usage:**
+
 ```bash
 # Production
 curl http://129.212.143.6:3000/health
 
-# Development  
+# Development
 curl http://localhost:3000/health
 ```
 
@@ -31,6 +33,7 @@ All Binance API endpoints require valid API keys configured in the environment v
 All API endpoints return responses in a consistent format:
 
 ### Success Response
+
 ```json
 {
   "success": true,
@@ -42,6 +45,7 @@ All API endpoints return responses in a consistent format:
 ```
 
 ### Error Response
+
 ```json
 {
   "success": false,
@@ -57,6 +61,7 @@ All API endpoints return responses in a consistent format:
 Get service health status and connection information.
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -103,6 +108,7 @@ Base path: `/api/binance/spot`
 Get spot account information.
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -131,6 +137,7 @@ Get spot account information.
 Get all spot balances.
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -155,11 +162,13 @@ Get all spot balances.
 Get balance for a specific asset.
 
 **Parameters:**
+
 - `asset` (path, optional): Asset symbol (e.g., BTC, USDT)
 
 **Example:** `GET /api/binance/spot/balance/BTC`
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -179,6 +188,7 @@ Get balance for a specific asset.
 Get open spot orders.
 
 **Query Parameters:**
+
 - `symbol` (optional): Trading pair symbol (e.g., BTCUSDT)
 - `limit` (optional): Number of orders to return (default: 500, max: 1000)
 - `offset` (optional): Pagination offset (default: 0)
@@ -186,6 +196,7 @@ Get open spot orders.
 **Example:** `GET /api/binance/spot/orders?symbol=BTCUSDT&limit=10`
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -220,18 +231,20 @@ Get open spot orders.
 Place a new spot order.
 
 **Request Body:**
+
 ```json
 {
   "symbol": "BTCUSDT",
   "side": "BUY",
   "type": "LIMIT",
   "quantity": 0.001,
-  "price": 50000.00,
+  "price": 50000.0,
   "timeInForce": "GTC"
 }
 ```
 
 **Request Body Parameters:**
+
 - `symbol` (required): Trading pair symbol
 - `side` (required): Order side ("BUY" or "SELL")
 - `type` (required): Order type ("MARKET", "LIMIT", "STOP_LOSS", "STOP_LOSS_LIMIT", "TAKE_PROFIT", "TAKE_PROFIT_LIMIT", "LIMIT_MAKER")
@@ -241,6 +254,7 @@ Place a new spot order.
 - `timeInForce` (optional): Time in force ("GTC", "IOC", "FOK")
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -268,12 +282,14 @@ Place a new spot order.
 Cancel a specific spot order.
 
 **Parameters:**
+
 - `symbol` (path, required): Trading pair symbol
 - `orderId` (path, required): Order ID to cancel
 
 **Example:** `DELETE /api/binance/spot/orders/BTCUSDT/28`
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -300,11 +316,13 @@ Cancel a specific spot order.
 Cancel all open orders for a symbol.
 
 **Parameters:**
+
 - `symbol` (path, required): Trading pair symbol
 
 **Example:** `DELETE /api/binance/spot/orders/BTCUSDT`
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -335,11 +353,13 @@ Cancel all open orders for a symbol.
 Get current price for a symbol or all symbols.
 
 **Parameters:**
+
 - `symbol` (path, optional): Trading pair symbol
 
 **Example:** `GET /api/binance/spot/price/BTCUSDT`
 
 **Response (single symbol):**
+
 ```json
 {
   "success": true,
@@ -354,6 +374,7 @@ Get current price for a symbol or all symbols.
 **Example:** `GET /api/binance/spot/price`
 
 **Response (all symbols):**
+
 ```json
 {
   "success": true,
@@ -376,11 +397,13 @@ Get current price for a symbol or all symbols.
 Get 24hr ticker statistics.
 
 **Parameters:**
+
 - `symbol` (path, optional): Trading pair symbol
 
 **Example:** `GET /api/binance/spot/ticker/BTCUSDT`
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -414,12 +437,14 @@ Get 24hr ticker statistics.
 Get order book depth.
 
 **Parameters:**
+
 - `symbol` (path, required): Trading pair symbol
 - `limit` (query, optional): Number of entries to return (default: 100, max: 5000)
 
 **Example:** `GET /api/binance/spot/depth/BTCUSDT?limit=10`
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -443,12 +468,14 @@ Get order book depth.
 Get recent trades.
 
 **Parameters:**
+
 - `symbol` (path, required): Trading pair symbol
 - `limit` (query, optional): Number of trades to return (default: 500, max: 1000)
 
 **Example:** `GET /api/binance/spot/trades/BTCUSDT?limit=5`
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -478,6 +505,7 @@ Base path: `/api/binance/futures`
 Get USD-M futures account information.
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -547,6 +575,7 @@ Get USD-M futures account information.
 Get USD-M futures position information.
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -578,11 +607,13 @@ Get USD-M futures position information.
 Get USD-M futures balance.
 
 **Parameters:**
+
 - `asset` (path, optional): Asset symbol (default: USDT)
 
 **Example:** `GET /api/binance/futures/balance/USDT`
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -611,11 +642,13 @@ Get USD-M futures balance.
 Get USD-M futures open orders.
 
 **Query Parameters:**
+
 - `symbol` (optional): Trading pair symbol
 - `limit` (optional): Number of orders to return
 - `offset` (optional): Pagination offset
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -655,13 +688,14 @@ Get USD-M futures open orders.
 Place a new USD-M futures order.
 
 **Request Body:**
+
 ```json
 {
   "symbol": "BTCUSDT",
   "side": "BUY",
   "type": "LIMIT",
   "quantity": 0.001,
-  "price": 50000.00,
+  "price": 50000.0,
   "timeInForce": "GTC",
   "reduceOnly": false,
   "positionSide": "BOTH"
@@ -669,6 +703,7 @@ Place a new USD-M futures order.
 ```
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -706,6 +741,7 @@ Place a new USD-M futures order.
 Cancel a specific USD-M futures order.
 
 **Parameters:**
+
 - `symbol` (path, required): Trading pair symbol
 - `orderId` (path, required): Order ID to cancel
 
@@ -714,6 +750,7 @@ Cancel a specific USD-M futures order.
 Cancel all USD-M futures orders for a symbol.
 
 **Parameters:**
+
 - `symbol` (path, required): Trading pair symbol
 
 #### POST /api/binance/futures/tpsl
@@ -721,17 +758,19 @@ Cancel all USD-M futures orders for a symbol.
 Set Take Profit and Stop Loss for USD-M futures.
 
 **Request Body:**
+
 ```json
 {
   "symbol": "BTCUSDT",
   "side": "BUY",
-  "takeProfitPrice": 55000.00,
-  "stopLossPrice": 45000.00,
+  "takeProfitPrice": 55000.0,
+  "stopLossPrice": 45000.0,
   "quantity": 0.001
 }
 ```
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -773,9 +812,11 @@ Set Take Profit and Stop Loss for USD-M futures.
 Get USD-M futures price information.
 
 **Parameters:**
+
 - `symbol` (path, optional): Trading pair symbol
 
 **Response (single symbol):**
+
 ```json
 {
   "success": true,
@@ -789,6 +830,7 @@ Get USD-M futures price information.
 ```
 
 **Response (all symbols):**
+
 ```json
 {
   "success": true,
@@ -817,15 +859,21 @@ The COIN-M Futures API endpoints follow the same structure as USD-M Futures but 
 ### Account & Position Endpoints
 
 #### GET /api/binance/coinm/account
+
 #### GET /api/binance/coinm/positions
+
 #### GET /api/binance/coinm/balance/:asset
 
 ### Order Management Endpoints
 
 #### GET /api/binance/coinm/orders
+
 #### POST /api/binance/coinm/orders
+
 #### DELETE /api/binance/coinm/orders/:symbol/:orderId
+
 #### DELETE /api/binance/coinm/orders/:symbol
+
 #### POST /api/binance/coinm/tpsl
 
 ### Market Data Endpoints
@@ -843,11 +891,13 @@ Base path: `/api/binance`
 Subscribe to spot ticker updates.
 
 **Parameters:**
+
 - `symbol` (path, required): Trading pair symbol
 
 **Request:** `POST /api/binance/spot/subscribe/ticker/BTCUSDT`
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -863,12 +913,14 @@ Subscribe to spot ticker updates.
 Subscribe to spot order book depth updates.
 
 **Parameters:**
+
 - `symbol` (path, required): Trading pair symbol
 - `levels` (query, optional): Depth levels (5, 10, 20)
 
 **Request:** `POST /api/binance/spot/subscribe/depth/BTCUSDT?levels=10`
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -884,11 +936,13 @@ Subscribe to spot order book depth updates.
 Subscribe to spot trade updates.
 
 **Parameters:**
+
 - `symbol` (path, required): Trading pair symbol
 
 **Request:** `POST /api/binance/spot/subscribe/trades/BTCUSDT`
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -906,6 +960,7 @@ Subscribe to spot trade updates.
 Get WebSocket connection status.
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -935,22 +990,24 @@ Connect to `ws://localhost:3000` (or your production WebSocket URL) for real-tim
 ### Connection
 
 ```javascript
-const ws = new WebSocket('ws://localhost:3000');
+const ws = new WebSocket("ws://localhost:3000");
 
-ws.onopen = function(event) {
-    console.log('Connected to WebSocket');
+ws.onopen = function (event) {
+  console.log("Connected to WebSocket");
 };
 
-ws.onmessage = function(event) {
-    const data = JSON.parse(event.data);
-    console.log('Received:', data);
+ws.onmessage = function (event) {
+  const data = JSON.parse(event.data);
+  console.log("Received:", data);
 };
 ```
 
 ### Message Types
 
 #### Welcome Message
+
 Sent when connection is established:
+
 ```json
 {
   "type": "welcome",
@@ -960,7 +1017,9 @@ Sent when connection is established:
 ```
 
 #### Ticker Updates
+
 Real-time price ticker updates:
+
 ```json
 {
   "type": "ticker",
@@ -975,7 +1034,9 @@ Real-time price ticker updates:
 ```
 
 #### Depth Updates
+
 Order book depth updates:
+
 ```json
 {
   "type": "depth",
@@ -989,7 +1050,9 @@ Order book depth updates:
 ```
 
 #### Trade Updates
+
 Real-time trade execution updates:
+
 ```json
 {
   "type": "trade",
@@ -1004,7 +1067,9 @@ Real-time trade execution updates:
 ```
 
 #### Ping/Pong
+
 Send ping to maintain connection:
+
 ```json
 {
   "type": "ping",
@@ -1013,6 +1078,7 @@ Send ping to maintain connection:
 ```
 
 Server responds with pong:
+
 ```json
 {
   "type": "pong",
@@ -1043,6 +1109,7 @@ Server responds with pong:
 ### Error Response Examples
 
 #### Validation Error
+
 ```json
 {
   "success": false,
@@ -1053,6 +1120,7 @@ Server responds with pong:
 ```
 
 #### Authentication Error
+
 ```json
 {
   "success": false,
@@ -1063,6 +1131,7 @@ Server responds with pong:
 ```
 
 #### Rate Limit Error
+
 ```json
 {
   "success": false,
@@ -1081,6 +1150,7 @@ The API implements rate limiting to prevent abuse:
 - **Headers**: Rate limit information included in response headers
 
 Rate limit headers:
+
 - `X-RateLimit-Limit`: Request limit per window
 - `X-RateLimit-Remaining`: Remaining requests in current window
 - `X-RateLimit-Reset`: Time when rate limit resets
@@ -1088,16 +1158,19 @@ Rate limit headers:
 ## Testing
 
 ### Health Check
+
 ```bash
 curl http://localhost:3000/health
 ```
 
 ### Get Spot Account
+
 ```bash
 curl http://localhost:3000/api/binance/spot/account
 ```
 
 ### Place Spot Order
+
 ```bash
 curl -X POST http://localhost:3000/api/binance/spot/orders \
   -H "Content-Type: application/json" \
@@ -1110,37 +1183,40 @@ curl -X POST http://localhost:3000/api/binance/spot/orders \
 ```
 
 ### WebSocket Test
+
 ```javascript
-const ws = new WebSocket('ws://localhost:3000');
+const ws = new WebSocket("ws://localhost:3000");
 ws.onmessage = (event) => console.log(JSON.parse(event.data));
 ```
 
 ## SDK Examples
 
 ### Node.js/JavaScript
+
 ```javascript
-const axios = require('axios');
+const axios = require("axios");
 
 const api = axios.create({
-  baseURL: 'http://localhost:3000',
-  timeout: 30000
+  baseURL: "http://localhost:3000",
+  timeout: 30000,
 });
 
 // Get account info
-const account = await api.get('/api/binance/spot/account');
+const account = await api.get("/api/binance/spot/account");
 console.log(account.data);
 
 // Place order
-const order = await api.post('/api/binance/spot/orders', {
-  symbol: 'BTCUSDT',
-  side: 'BUY',
-  type: 'MARKET',
-  quantity: 0.001
+const order = await api.post("/api/binance/spot/orders", {
+  symbol: "BTCUSDT",
+  side: "BUY",
+  type: "MARKET",
+  quantity: 0.001,
 });
 console.log(order.data);
 ```
 
 ### Python
+
 ```python
 import requests
 import json
@@ -1165,6 +1241,7 @@ print(order)
 ```
 
 ### cURL Examples
+
 ```bash
 # Health check
 curl http://localhost:3000/health
@@ -1200,6 +1277,7 @@ The RAG API provides intelligent document storage, retrieval, and question-answe
 **Main RAG query endpoint** - Ask questions and get AI-powered answers based on your stored documents.
 
 **Request Body:**
+
 ```json
 {
   "query": "What are my best performing posts?",
@@ -1212,12 +1290,14 @@ The RAG API provides intelligent document storage, retrieval, and question-answe
 ```
 
 **Parameters:**
+
 - `query` (required): Question or query string (1-2000 characters)
 - `domain` (optional): One of `instagram`, `fitness`, `trading`, `general`
 - `options.topK` (optional): Number of similar documents to retrieve (1-20, default: 5)
 - `options.minScore` (optional): Minimum similarity score (0-1, default: 0.7)
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -1254,6 +1334,7 @@ The RAG API provides intelligent document storage, retrieval, and question-answe
 Get RAG system status and statistics.
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -1281,6 +1362,7 @@ Get RAG system status and statistics.
 Add a single document to the RAG system.
 
 **Request Body:**
+
 ```json
 {
   "id": "unique-document-id",
@@ -1296,6 +1378,7 @@ Add a single document to the RAG system.
 ```
 
 **Parameters:**
+
 - `id` (required): Unique document identifier (1-255 characters)
 - `content` (required): Document content (1-50000 characters)
 - `metadata.domain` (required): One of `instagram`, `fitness`, `trading`, `general`
@@ -1303,6 +1386,7 @@ Add a single document to the RAG system.
 - `metadata.contentType` (required): One of `text`, `post`, `article`, `summary`, `note`
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -1319,6 +1403,7 @@ Add a single document to the RAG system.
 Add multiple documents to the RAG system (1-50 documents per request).
 
 **Request Body:**
+
 ```json
 {
   "documents": [
@@ -1345,6 +1430,7 @@ Add multiple documents to the RAG system (1-50 documents per request).
 ```
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -1372,9 +1458,11 @@ Add multiple documents to the RAG system (1-50 documents per request).
 Update an existing document in the RAG system.
 
 **Parameters:**
+
 - `id` (path): Document ID to update
 
 **Request Body:**
+
 ```json
 {
   "content": "Updated document content...",
@@ -1387,6 +1475,7 @@ Update an existing document in the RAG system.
 ```
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -1403,12 +1492,14 @@ Update an existing document in the RAG system.
 Remove a document from the RAG system.
 
 **Parameters:**
+
 - `id` (path): Document ID to remove
 - `domain` (query, optional): Domain filter
 
 **Example:** `DELETE /api/rag/documents/doc-123?domain=instagram`
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -1427,11 +1518,13 @@ Remove a document from the RAG system.
 **Clear all data from a specific namespace** - Use with caution! This removes all documents in the specified namespace.
 
 **Parameters:**
+
 - `namespace` (path): Namespace to clear (e.g., `instagram`, `fitness`, `trading`, `general`)
 
 **Example:** `DELETE /api/rag/namespace/instagram`
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -1448,6 +1541,7 @@ Remove a document from the RAG system.
 Simple health check for the RAG system.
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -1464,6 +1558,7 @@ Simple health check for the RAG system.
 Test the enhanced Instagram RAG analysis with predefined queries.
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -1500,12 +1595,14 @@ The Instagram API provides comprehensive integration with Instagram Business API
 **Main pipeline endpoint** - Fetch from Instagram API, store in Firestore, sync to RAG system.
 
 **Query Parameters:**
+
 - `limit` (optional): Number of posts to fetch (default: 1000, max: 1000) - **No artificial limits!**
 
 **Example:** `POST /api/instagram/sync` (fetches all available posts)
 **Example:** `POST /api/instagram/sync?limit=50` (limit for testing only)
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -1524,11 +1621,49 @@ The Instagram API provides comprehensive integration with Instagram Business API
 }
 ```
 
+### POST /api/instagram/sync-complete
+
+Complete pipeline: Instagram API → Firestore + JSON → RAG.
+
+**Query Parameters:**
+
+- `limit` (optional): Number of posts to sync (default: 1000, max: 1000)
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "message": "Complete Instagram sync pipeline completed successfully",
+  "data": {
+    "account": {
+      "username": "your_username",
+      "followersCount": 5000,
+      "mediaCount": 150
+    },
+    "sync": {
+      "postsFromAPI": 150,
+      "postsToFirestore": 150,
+      "postsToRAG": 150,
+      "jsonFilePath": "/path/to/instagram-complete-data.json"
+    },
+    "rag": {
+      "documentsAdded": 150,
+      "ragStatus": "loaded",
+      "processingTime": 5234
+    }
+  },
+  "processingTime": 15234,
+  "timestamp": 1640995200000
+}
+```
+
 ### GET /api/instagram/analytics
 
 Get comprehensive analytics combining fresh account data with stored posts.
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -1541,7 +1676,22 @@ Get comprehensive analytics combining fresh account data with stored posts.
       "followersCount": 5000,
       "followsCount": 500
     },
-    "posts": [...],
+    "posts": [
+      {
+        "id": "17898870784439040",
+        "shortcode": "ABC123def",
+        "caption": "...",
+        "mediaType": "IMAGE | VIDEO | CAROUSEL_ALBUM",
+        "mediaUrl": "https://...",
+        "thumbnailUrl": "https://...",
+        "timestamp": "2024-01-01T00:00:00.000Z",
+        "metrics": {
+          "likesCount": 150,
+          "commentsCount": 25,
+          "engagementRate": 8.4
+        }
+      }
+    ],
     "summary": {
       "totalPosts": 150,
       "totalEngagement": 25000,
@@ -1560,11 +1710,13 @@ Get comprehensive analytics combining fresh account data with stored posts.
 **Update metrics for existing posts** - like your Kotlin app does. Fetches fresh metrics from Instagram API and updates Firestore.
 
 **Query Parameters:**
+
 - `postIds` (optional): Comma-separated list of post IDs to update. If not provided, updates posts needing refresh (older than 24 hours)
 
 **Example:** `POST /api/instagram/metrics/update?postIds=17898870784439040,17912345678901234`
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -1593,12 +1745,14 @@ Get comprehensive analytics combining fresh account data with stored posts.
 **Sync fresh metrics** from Instagram API to Firestore - maintains data freshness like your Kotlin app.
 
 **Query Parameters:**
+
 - `limit` (optional): Number of recent posts to sync (default: 1000, max: 1000) - **No artificial limits!**
 
 **Example:** `POST /api/instagram/metrics/sync` (syncs all available posts)
 **Example:** `POST /api/instagram/metrics/sync?limit=100` (limit for testing only)
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -1619,6 +1773,7 @@ Get comprehensive analytics combining fresh account data with stored posts.
 Get Instagram account information from Instagram API.
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -1643,6 +1798,7 @@ Get Instagram account information from Instagram API.
 Get Instagram posts from Instagram API with pagination.
 
 **Query Parameters:**
+
 - `limit` (optional): Number of posts to fetch (default: 1000, max: 1000) - **No artificial limits!**
 - `after` (optional): Pagination cursor
 
@@ -1650,6 +1806,7 @@ Get Instagram posts from Instagram API with pagination.
 **Example:** `GET /api/instagram/posts?limit=50&after=cursor_string` (limit for testing only)
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -1658,8 +1815,9 @@ Get Instagram posts from Instagram API with pagination.
       "id": "17898870784439040",
       "shortcode": "ABC123def",
       "caption": "Your post caption #fitness #motivation",
-      "mediaType": "IMAGE",
+      "mediaType": "IMAGE | VIDEO | CAROUSEL_ALBUM",
       "mediaUrl": "https://...",
+      "thumbnailUrl": "https://...",
       "permalink": "https://www.instagram.com/p/ABC123def/",
       "timestamp": "2024-01-01T00:00:00.000Z",
       "username": "your_username",
@@ -1692,9 +1850,14 @@ Get Instagram posts from Instagram API with pagination.
 
 ### GET /api/instagram/firestore/posts
 
-Get Instagram posts from Firestore (your existing Kotlin app data).
+Get Instagram posts from Firestore (frontend-optimized). Supports smart sync with Instagram when counts differ, and optional forced sync.
+
+**Query Parameters:**
+
+- `forceSync` (optional, boolean): If true, forces a fresh sync from Instagram before returning data.
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -1718,11 +1881,21 @@ Get Instagram posts from Firestore (your existing Kotlin app data).
       },
       "shortcode": "ABC123def",
       "hashtags": ["#fitness", "#motivation"],
-      "mentions": ["@someone"]
+      "mentions": ["@someone"],
+      "mediaUrl": "https://...",
+      "thumbnailUrl": "https://..."
     }
   ],
   "count": 150,
-  "source": "Firebase Firestore",
+  "source": "Firebase Firestore (Auto-synced)",
+  "syncInfo": {
+    "triggered": true,
+    "reason": "post_count_mismatch",
+    "previousCount": 148,
+    "currentCount": 150,
+    "newPosts": 2,
+    "processingTime": 2890
+  },
   "timestamp": 1640995200000
 }
 ```
@@ -1732,6 +1905,7 @@ Get Instagram posts from Firestore (your existing Kotlin app data).
 Get raw Instagram data from Firestore (exact format as your Kotlin app export).
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -1767,6 +1941,7 @@ Get raw Instagram data from Firestore (exact format as your Kotlin app export).
 Sync Firestore Instagram data to RAG system for AI queries.
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -1787,16 +1962,18 @@ Sync Firestore Instagram data to RAG system for AI queries.
 
 ### POST /api/instagram/migrate/thumbnail-urls
 
-**🔧 Migration endpoint** to fix existing Firestore posts that are missing thumbnail URLs. This updates posts stored before thumbnail URL support was implemented.
+**🔧 Migration endpoint** to fix existing Firestore posts that are missing thumbnail URLs. This updates posts stored before thumbnail URL support was implemented and refreshes stale URLs when needed.
 
 **Query Parameters:**
-- `limit` (optional): Number of posts to process (default: 50, max: 100)
+
+- `limit` (optional): Number of posts to process (default: 1000, max: 1000). By default it processes all posts needing thumbnails.
 - `dryRun` (optional): Run without making changes to preview results (default: false)
 
 **Example:** `POST /api/instagram/migrate/thumbnail-urls` (processes all posts needing thumbnails)
-**Example:** `POST /api/instagram/migrate/thumbnail-urls?limit=25&dryRun=true` (limit for testing only)
+**Example:** `POST /api/instagram/migrate/thumbnail-urls?limit=50&dryRun=true` (limit for testing only)
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -1823,8 +2000,9 @@ Sync Firestore Instagram data to RAG system for AI queries.
 ```
 
 **Important Notes:**
-- This migration fixes posts stored before thumbnail URL support
-- Fetches fresh data from Instagram API to get current thumbnail URLs
+
+- Fixes legacy posts stored before thumbnail URL support and refreshes stale URLs when present
+- Prefers `thumbnailUrl` for videos; falls back to `mediaUrl` if a thumbnail isn’t available
 - Automatically regenerates JSON files with updated data
 - Use `dryRun=true` to preview changes before applying them
 - Only processes posts that are actually missing thumbnail URLs
@@ -1836,6 +2014,7 @@ Sync Firestore Instagram data to RAG system for AI queries.
 Get Instagram cache statistics.
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -1857,6 +2036,7 @@ Get Instagram cache statistics.
 Clear Instagram cache to force fresh data fetch.
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -1872,6 +2052,7 @@ Clear Instagram cache to force fresh data fetch.
 Get comprehensive health status of all Instagram services.
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -1891,6 +2072,7 @@ Get comprehensive health status of all Instagram services.
 Health check for Instagram API connection.
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -1902,11 +2084,32 @@ Health check for Instagram API connection.
 }
 ```
 
+### GET /api/instagram/status
+
+Comprehensive health/status for Instagram pipeline components (Instagram API, Firestore, RAG, cache).
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "health": {
+    "instagram": true,
+    "firestore": true,
+    "rag": true,
+    "cache": true,
+    "overall": true
+  },
+  "timestamp": 1640995200000
+}
+```
+
 ### GET /api/instagram/firestore/health
 
 Health check for Firebase Firestore connection.
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -1923,6 +2126,7 @@ Health check for Firebase Firestore connection.
 ### Common Error Cases
 
 #### 400 Bad Request - Missing Configuration
+
 ```json
 {
   "success": false,
@@ -1932,6 +2136,7 @@ Health check for Firebase Firestore connection.
 ```
 
 #### 400 Bad Request - Validation Error
+
 ```json
 {
   "success": false,
@@ -1947,6 +2152,7 @@ Health check for Firebase Firestore connection.
 ```
 
 #### 500 Internal Server Error
+
 ```json
 {
   "success": false,
@@ -1963,11 +2169,13 @@ Health check for Firebase Firestore connection.
 **Complete sync pipeline** - Instagram API → Firestore + JSON → RAG system in one call.
 
 **Query Parameters:**
+
 - `limit` (optional): Number of posts to sync (default: 1000, max: 1000) - **No artificial limits!**
 
 **Example:** `POST /api/instagram/sync-complete` (complete sync of all available posts)
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -2000,6 +2208,7 @@ Health check for Firebase Firestore connection.
 Load existing JSON file data to RAG system.
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -2018,6 +2227,7 @@ Load existing JSON file data to RAG system.
 Check status of the Instagram JSON data file.
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -2040,6 +2250,7 @@ Check status of the Instagram JSON data file.
 **Trigger RAG sync when data is updated** - Call this when Instagram data changes.
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -2062,11 +2273,13 @@ Check status of the Instagram JSON data file.
 Enable or disable automatic RAG sync for Instagram data.
 
 **Query Parameters:**
+
 - `enabled` (required): Boolean value to enable/disable auto-sync
 
 **Example:** `POST /api/instagram/rag/auto-sync?enabled=true`
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -2084,6 +2297,7 @@ Enable or disable automatic RAG sync for Instagram data.
 Get RAG sync status and configuration for Instagram data.
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -2098,6 +2312,7 @@ Get RAG sync status and configuration for Instagram data.
 ## Usage Examples
 
 ### Complete Data Pipeline (Kotlin App Compatible)
+
 ```bash
 # 1. Complete sync pipeline (all available posts - no limits!)
 curl -X POST "http://localhost:3000/api/instagram/sync-complete"
@@ -2122,6 +2337,7 @@ curl -X POST "http://localhost:3000/api/rag/query" \
 ```
 
 ### Periodic Metrics Sync (Like Kotlin App)
+
 ```bash
 # Sync fresh metrics from Instagram API to Firestore (all posts - no limits!)
 curl -X POST "http://localhost:3000/api/instagram/metrics/sync"
@@ -2131,6 +2347,7 @@ curl -X POST "http://localhost:3000/api/instagram/rag/auto-sync?enabled=true"
 ```
 
 ### Access Existing Firestore Data
+
 ```bash
 # Get posts from Firestore (your Kotlin app data)
 curl "http://localhost:3000/api/instagram/firestore/posts"
@@ -2139,4 +2356,4 @@ curl "http://localhost:3000/api/instagram/firestore/posts"
 curl "http://localhost:3000/api/instagram/firestore/raw"
 ```
 
-This documentation provides comprehensive coverage of all API endpoints, request/response formats, and usage examples for the AllInOne External Services application. 
+This documentation provides comprehensive coverage of all API endpoints, request/response formats, and usage examples for the AllInOne External Services application.
