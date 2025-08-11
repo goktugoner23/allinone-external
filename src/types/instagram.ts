@@ -291,6 +291,9 @@ export interface InstagramConfig {
   // Instagram Business API specific
   pageAccessToken?: string; // Facebook Page Access Token for Business API
   facebookPageId?: string; // Facebook Page ID connected to Instagram Business Account
+  // Instagram Web session (for public stories/profile access like insta-stories)
+  sessionId?: string;
+  dsUserId?: string;
 }
 
 export interface InstagramSyncStatus {

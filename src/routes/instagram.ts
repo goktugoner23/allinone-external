@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { query, validationResult } from 'express-validator';
+import { param, query, validationResult } from 'express-validator';
 import { asyncHandler } from '../middleware/errorHandler';
 import InstagramService from '../services/instagram/instagram-service';
 import FirebaseInstagramService from '../services/firebase/firebase-instagram';
@@ -21,12 +21,100 @@ const instagramConfig: InstagramConfig = {
   appSecret: config.instagram?.appSecret || '',
   webhookVerifyToken: config.instagram?.webhookVerifyToken || '',
   apiVersion: config.instagram?.apiVersion || 'v18.0',
-  pageAccessToken: config.instagram?.pageAccessToken || ''
+  pageAccessToken: config.instagram?.pageAccessToken || '',
+  sessionId: config.instagram?.sessionId || undefined,
+  dsUserId: config.instagram?.dsUserId || undefined,
 };
 
 const instagramService = new InstagramService(instagramConfig);
 const firebaseInstagramService = new FirebaseInstagramService();
 const instagramPipeline = new InstagramPipeline(instagramConfig);
+
+/**
+ * GET /api/instagram/profile-picture/:username
+ * Fetch public profile picture by username
+ */
+router.get('/profile-picture/:username', [
+  param('username').isString().trim().isLength({ min: 1, max: 50 })
+], asyncHandler(async (req: Request, res: Response) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ success: false, error: 'Validation failed', details: errors.array() });
+  }
+
+  const { username } = req.params;
+  logger.info('Fetching Instagram profile picture', { username });
+
+  try {
+    const profile = await instagramService.getPublicProfileByUsername(username);
+    if (!profile.exists) {
+      return res.status(404).json({ success: false, error: 'User not found or not accessible', timestamp: Date.now() });
+    }
+
+    const imageUrl = profile.hdProfilePictureUrl || profile.profilePictureUrl || null;
+
+    const session = await instagramService.checkSession();
+    return res.json({
+      success: true,
+      data: {
+        username: profile.username,
+        imageUrl,
+        isPrivate: profile.isPrivate ?? undefined,
+        isVerified: profile.isVerified ?? undefined,
+        fullName: profile.fullName ?? undefined
+      },
+      session,
+      timestamp: Date.now()
+    });
+  } catch (error) {
+    logger.error('Failed to fetch profile picture', { username, error });
+    const session = await instagramService.checkSession();
+    return res.status(500).json({ success: false, error: 'Failed to fetch profile picture', session, timestamp: Date.now() });
+  }
+}));
+
+/**
+ * GET /api/instagram/stories/:username
+ * Fetch public stories by username (only if public/accessible)
+ */
+router.get('/stories/:username', [
+  param('username').isString().trim().isLength({ min: 1, max: 50 })
+], asyncHandler(async (req: Request, res: Response) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ success: false, error: 'Validation failed', details: errors.array() });
+  }
+
+  const { username } = req.params;
+  logger.info('Fetching Instagram public stories', { username });
+
+  try {
+    // Quick profile check to respect privacy
+    const profile = await instagramService.getPublicProfileByUsername(username);
+    if (!profile.exists) {
+      const session = await instagramService.checkSession();
+      return res.status(404).json({ success: false, error: 'User not found or not accessible', session, timestamp: Date.now() });
+    }
+    if (profile.isPrivate) {
+      const session = await instagramService.checkSession();
+      return res.status(403).json({ success: false, error: 'Profile is private', session, timestamp: Date.now() });
+    }
+
+    const { stories, session } = await instagramService.getPublicStoriesByUsername(username);
+
+    return res.json({
+      success: true,
+      data: stories,
+      count: stories.length,
+      session,
+      timestamp: Date.now()
+    });
+  } catch (error) {
+    logger.error('Failed to fetch public stories', { username, error });
+    const session = await instagramService.checkSession();
+    return res.status(500).json({ success: false, error: 'Failed to fetch stories', session, timestamp: Date.now() });
+  }
+}));
 
 /**
  * POST /api/instagram/sync

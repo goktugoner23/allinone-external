@@ -1846,6 +1846,78 @@ Get Instagram posts from Instagram API with pagination.
 }
 ```
 
+### GET /api/instagram/profile-picture/:username
+
+Fetch a public Instagram profile picture by username. Returns HD image URL when available.
+
+**Parameters:**
+
+- `username` (path, required): Instagram username (e.g., `goktug_oner`)
+
+**Example:** `GET /api/instagram/profile-picture/goktug_oner`
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "data": {
+    "username": "goktug_oner",
+    "imageUrl": "https://.../profile_pic.jpg",
+    "isPrivate": false,
+    "isVerified": false,
+    "fullName": "Goktug Oner"
+  },
+  "session": {
+    "hasSession": true,
+    "valid": true
+  },
+  "timestamp": 1640995200000
+}
+```
+
+### GET /api/instagram/stories/:username
+
+Fetch public stories for a username (images and videos). Requires public profile and a valid Instagram web session cookie configured via environment variables.
+
+Environment variables used (optional but recommended for stories):
+- `INSTAGRAM_SESSIONID`
+- `INSTAGRAM_DS_USER_ID`
+
+**Parameters:**
+
+- `username` (path, required): Instagram username (e.g., `goktug_oner`)
+
+**Example:** `GET /api/instagram/stories/goktug_oner`
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": "3696892577231948179_355058142",
+      "mediaType": "IMAGE",
+      "mediaUrl": "https://.../story_image.jpg",
+      "timestamp": "2025-08-11T14:52:34.000Z",
+      "expiresAt": "2025-08-12T14:52:34.000Z"
+    }
+  ],
+  "count": 1,
+  "session": {
+    "hasSession": true,
+    "valid": true
+  },
+  "timestamp": 1640995200000
+}
+```
+
+Possible session status values in `session`:
+- **hasSession**: whether `INSTAGRAM_SESSIONID` and `INSTAGRAM_DS_USER_ID` are set
+- **valid**: whether a lightweight authenticated check succeeds
+- **issue**: optional reason string (e.g., `unauthorized`, `login_required`) when invalid
+
 ## Firestore Integration Endpoints
 
 ### GET /api/instagram/firestore/posts

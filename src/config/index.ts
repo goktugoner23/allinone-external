@@ -60,6 +60,8 @@ export interface Config {
     apiVersion: string;
     pageAccessToken?: string;
     facebookPageId?: string;
+    sessionId?: string;
+    dsUserId?: string;
   };
 }
 
@@ -143,7 +145,9 @@ const config: Config = {
     webhookVerifyToken: process.env.INSTAGRAM_WEBHOOK_VERIFY_TOKEN,
     apiVersion: process.env.INSTAGRAM_API_VERSION || 'v18.0',
     pageAccessToken: process.env.FACEBOOK_GRAPH_TOKEN || process.env.FACEBOOK_PAGE_ACCESS_TOKEN,
-    facebookPageId: process.env.FACEBOOK_PAGE_ID
+    facebookPageId: process.env.FACEBOOK_PAGE_ID,
+    sessionId: process.env.INSTAGRAM_SESSIONID,
+    dsUserId: process.env.INSTAGRAM_DS_USER_ID
   }
 };
 

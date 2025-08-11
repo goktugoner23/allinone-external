@@ -7,6 +7,7 @@ import {
   InstagramAPIResponse,
   InstagramConfig,
   InstagramContentPerformance,
+  InstagramStory,
 } from "../../types/instagram";
 import logger from "../../utils/logger";
 
@@ -14,6 +15,8 @@ export class InstagramService {
   private client: AxiosInstance;
   private config: InstagramConfig;
   private graphApiUrl = "https://graph.facebook.com";
+  private instagramWebUrl = "https://www.instagram.com";
+  private instagramMobileApiUrl = "https://i.instagram.com";
 
   constructor(instagramConfig: InstagramConfig) {
     this.config = instagramConfig;
@@ -73,6 +76,30 @@ export class InstagramService {
   }
 
   /**
+   * Check if configured Instagram session cookies look valid by calling a lightweight authed endpoint
+   */
+  async checkSession(): Promise<{ hasSession: boolean; valid: boolean; issue?: string }> {
+    const hasSession = Boolean(this.config.sessionId && this.config.dsUserId);
+    if (!hasSession) {
+      return { hasSession: false, valid: false, issue: 'no_session_configured' };
+    }
+
+    try {
+      const resp = await this.client.get(
+        `${this.instagramMobileApiUrl}/api/v1/accounts/current_user/`,
+        { headers: this.getInstagramWebHeaders(true) }
+      );
+      const ok = resp.status === 200 && resp.data?.user?.pk;
+      return { hasSession: true, valid: !!ok, issue: ok ? undefined : 'unexpected_response' };
+    } catch (error: any) {
+      const status = error?.response?.status;
+      const body = error?.response?.data;
+      const issue = body?.message || body?.status || (status === 401 ? 'unauthorized' : 'session_error');
+      return { hasSession: true, valid: false, issue };
+    }
+  }
+
+  /**
    * Get single media by ID (for refreshing thumbnail/media URLs)
    */
   async getMediaById(mediaId: string): Promise<{
@@ -111,6 +138,206 @@ export class InstagramService {
       logger.error("Error fetching media by ID from Instagram API:", error);
       throw new Error(`Failed to fetch media ${mediaId}`);
     }
+  }
+
+  /**
+   * Fetch public profile info via Instagram web API by username
+   * Best-effort: relies on public endpoints that may change without notice
+   */
+  async getPublicProfileByUsername(username: string): Promise<{
+    username: string;
+    userId?: string;
+    profilePictureUrl?: string | null;
+    hdProfilePictureUrl?: string | null;
+    isPrivate?: boolean;
+    isVerified?: boolean;
+    fullName?: string;
+    exists: boolean;
+  }> {
+    const url = `${this.instagramWebUrl}/api/v1/users/web_profile_info/`;
+    try {
+      const response = await this.client.get(url, {
+        params: { username },
+        headers: this.getInstagramWebHeaders(),
+      });
+
+      const user = response.data?.data?.user;
+      if (!user) {
+        return { username, exists: false };
+      }
+
+      return {
+        username,
+        userId: user.id,
+        profilePictureUrl: user.profile_pic_url || null,
+        hdProfilePictureUrl: user.hd_profile_pic_url_info?.url || user.profile_pic_url_hd || null,
+        isPrivate: Boolean(user.is_private),
+        isVerified: Boolean(user.is_verified),
+        fullName: user.full_name,
+        exists: true,
+      };
+    } catch (error) {
+      logger.warn("Failed Instagram web profile fetch; falling back to og:image scrape", {
+        username,
+        error: (error as any)?.message || "unknown",
+      });
+
+      // Fallback: scrape HTML meta og:image
+      try {
+        const htmlResp = await this.client.get(`${this.instagramWebUrl}/${encodeURIComponent(username)}/`, {
+          headers: this.getInstagramWebHeaders(),
+        });
+        const html: string = htmlResp.data || "";
+        const ogImageMatch = html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i);
+        const img = ogImageMatch?.[1] || null;
+        return { username, profilePictureUrl: img, hdProfilePictureUrl: img, exists: Boolean(img) };
+      } catch (fallbackErr) {
+        logger.error("Failed to scrape Instagram profile page for og:image", {
+          username,
+          error: (fallbackErr as any)?.message || "unknown",
+        });
+        return { username, exists: false };
+      }
+    }
+  }
+
+  /**
+   * Fetch public stories for a username if accessible without authentication
+   * Uses Instagram web API (best-effort, may break/change). Returns empty array on failure.
+   */
+  async getPublicStoriesByUsername(username: string): Promise<{ stories: InstagramStory[]; session: { hasSession: boolean; valid: boolean; issue?: string } }> {
+    try {
+      // First, resolve user id via public profile API
+      const profile = await this.getPublicProfileByUsername(username);
+      if (!profile.exists || !profile.userId) {
+        logger.info("Stories: profile not found or missing userId", { username, exists: profile.exists, userId: profile.userId });
+        const session = await this.checkSession();
+        return { stories: [], session };
+      }
+
+      logger.info("Stories: resolved profile userId", { username, userId: profile.userId });
+
+      // Use mobile reels_media first (proved to work in direct test)
+      let reels: any;
+      const mobileResp = await this.client.get(
+        `${this.instagramMobileApiUrl}/api/v1/feed/reels_media/`,
+        {
+          params: { reel_ids: profile.userId },
+          headers: this.getInstagramWebHeaders(true, username),
+        }
+      );
+      reels = mobileResp.data?.reels_media?.[0] || mobileResp.data?.reels?.[profile.userId];
+      if (!reels) {
+        // Final fallback: dedicated user reel_media endpoint
+        try {
+          const userReelResp = await this.client.get(
+            `${this.instagramMobileApiUrl}/api/v1/feed/user/${encodeURIComponent(profile.userId)}/reel_media/`,
+            { headers: this.getInstagramWebHeaders(true, username) }
+          );
+          reels = userReelResp.data;
+        } catch (lastErr) {
+          logger.debug("User reel_media fallback failed", { username, error: (lastErr as any)?.message || "unknown" });
+        }
+      }
+
+      const items: any[] = reels?.items || [];
+
+      const stories: InstagramStory[] = items.map((item: any) => {
+        const isVideo = Boolean(item.video_versions && item.video_versions.length > 0);
+        const mediaUrl = isVideo
+          ? item.video_versions?.[0]?.url
+          : item.image_versions2?.candidates?.[0]?.url;
+        const takenAt = item.taken_at ? new Date(item.taken_at * 1000).toISOString() : new Date().toISOString();
+        const expiringAt = item.expiring_at ? new Date(item.expiring_at * 1000).toISOString() : new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+        return {
+          id: String(item.id || item.pk || `${profile.userId}_${item.taken_at || Date.now()}`),
+          mediaType: (isVideo ? "VIDEO" : "IMAGE") as "VIDEO" | "IMAGE",
+          mediaUrl: String(mediaUrl),
+          timestamp: takenAt,
+          expiresAt: expiringAt,
+        };
+      }).filter((s: InstagramStory) => Boolean(s.mediaUrl));
+
+      const session = await this.checkSession();
+      return { stories, session };
+    } catch (error) {
+      logger.warn("Public stories fetch failed (likely requires auth or user is private)", {
+        username,
+        error: (error as any)?.message || "unknown",
+      });
+      const issueText = (error as any)?.response?.data?.message || (error as any)?.response?.data?.status;
+      const status = (error as any)?.response?.status;
+      const session = await this.checkSession();
+      // If unauthorized or login required, force session.valid=false
+      if (status === 401 || issueText === 'login_required' || issueText === 'challenge_required') {
+        session.valid = false;
+        session.issue = issueText || 'unauthorized';
+      }
+      return { stories: [], session };
+    }
+  }
+
+  /**
+   * Fetch stories of the configured Instagram Business account via Graph API
+   */
+  async getOwnStories(): Promise<InstagramStory[]> {
+    const accessToken = this.config.pageAccessToken || this.config.accessToken;
+    const accountId = this.config.userId;
+    try {
+      const response = await this.client.get(
+        `${this.graphApiUrl}/${this.config.apiVersion || "v18.0"}/${accountId}/stories`,
+        {
+          params: {
+            fields: "id,media_type,media_url,thumbnail_url,permalink,timestamp",
+            access_token: accessToken,
+          },
+        }
+      );
+
+      const data: any[] = response.data?.data || [];
+      const stories: InstagramStory[] = data.map((s) => ({
+        id: s.id,
+        mediaType: (s.media_type === "VIDEO" ? "VIDEO" : "IMAGE") as "VIDEO" | "IMAGE",
+        mediaUrl: String(s.media_url || s.thumbnail_url),
+        timestamp: s.timestamp,
+        // Graph API does not provide explicit expiry; assume 24h after timestamp
+        expiresAt: new Date(new Date(s.timestamp).getTime() + 24 * 60 * 60 * 1000).toISOString(),
+      }));
+      return stories;
+    } catch (error) {
+      logger.error("Error fetching own stories via Graph API:", error);
+      throw new Error("Failed to fetch stories for configured account");
+    }
+  }
+
+  /**
+   * Headers to mimic Instagram web requests
+   */
+  private getInstagramWebHeaders(includeMobileHeaders: boolean = false, usernameForReferer?: string): Record<string, string> {
+    const headers: Record<string, string> = {
+      "User-Agent": includeMobileHeaders
+        ? "Instagram 270.0.0.0.58 Android (30/11; 420dpi; 1080x1920; Google; Pixel 4; flame; qcom; en_US)"
+        : "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+      Accept: "*/*",
+      Referer: usernameForReferer ? `https://www.instagram.com/${encodeURIComponent(usernameForReferer)}/` : "https://www.instagram.com/",
+      "Accept-Language": "en-US,en;q=0.9",
+      "X-Requested-With": "XMLHttpRequest",
+    };
+
+    // App ID and cookies for authenticated-like access
+    headers["X-IG-App-ID"] = includeMobileHeaders ? "1217981644879628" : "936619743392459";
+    if (includeMobileHeaders) {
+      headers["X-IG-Capabilities"] = "3brTvw==";
+      headers["X-IG-Connection-Type"] = "WIFI";
+    }
+
+    if (this.config.sessionId && this.config.dsUserId) {
+      headers["Cookie"] = `sessionid=${this.config.sessionId}; ds_user_id=${this.config.dsUserId}; csrftoken=missing; mid=missing; ig_did=missing;`;
+      headers["X-CSRFToken"] = "missing";
+      headers["IG-U-DS-USER-ID"] = String(this.config.dsUserId);
+    }
+
+    return headers;
   }
 
   /**
