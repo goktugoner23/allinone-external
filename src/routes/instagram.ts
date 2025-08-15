@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { param, query, validationResult } from 'express-validator';
+import axios from 'axios';
 import { asyncHandler } from '../middleware/errorHandler';
 import InstagramService from '../services/instagram/instagram-service';
 import FirebaseInstagramService from '../services/firebase/firebase-instagram';
@@ -70,6 +71,64 @@ router.get('/profile-picture/:username', [
     logger.error('Failed to fetch profile picture', { username, error });
     const session = await instagramService.checkSession();
     return res.status(500).json({ success: false, error: 'Failed to fetch profile picture', session, timestamp: Date.now() });
+  }
+}));
+
+/**
+ * GET /api/instagram/image-proxy
+ * Proxy Instagram CDN images to avoid 403/CORS issues on clients
+ * Query: url (base64-encoded or plain URL). Only allows Instagram/Facebook CDN hosts.
+ */
+router.get('/image-proxy', [
+  query('url').isString()
+], asyncHandler(async (req: Request, res: Response) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ success: false, error: 'Validation failed', details: errors.array() });
+  }
+
+  let target = String(req.query.url || '');
+  try {
+    // Support base64-encoded URL
+    if (!/^https?:\/\//i.test(target)) {
+      const decoded = Buffer.from(target, 'base64').toString('utf8');
+      if (/^https?:\/\//i.test(decoded)) target = decoded;
+    }
+
+    const u = new URL(target);
+    const host = u.hostname.toLowerCase();
+    const allowed = [
+      'cdninstagram.com',
+      'instagram.fna',
+      'instagram.fd',
+      'instagram.xx',
+      'instagram.c',
+      'fbcdn.net',
+      'scontent.cdninstagram.com',
+      'scontent.xx.fbcdn.net'
+    ];
+    if (!allowed.some(h => host.includes(h))) {
+      return res.status(400).json({ success: false, error: 'Host not allowed' });
+    }
+
+    const upstream = await axios.get(target, {
+      responseType: 'stream',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1',
+        'Accept': 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
+        'Referer': 'https://www.instagram.com/',
+        'Accept-Language': 'en-US,en;q=0.9'
+      },
+      // Modest timeout to avoid long hangs
+      timeout: 15000
+    });
+
+    const contentType = upstream.headers['content-type'] || 'image/jpeg';
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Cache-Control', 'public, max-age=300');
+    upstream.data.pipe(res);
+  } catch (err: any) {
+    res.status(502).json({ success: false, error: 'Failed to fetch image', details: err?.message || 'upstream_error' });
   }
 }));
 
